@@ -1,83 +1,122 @@
-# Hermetic Neovim Configuration Build System (v2)
+# Hermetic Neovim Configuration Build System (v3)
 
 ## Summary
 
 We provide a **hermetic, reproducible build** for a Neovim configuration
-centered on **rocks.nvim**. The build is a **Makefile-driven DAG** with real
-file targets and pattern rules. Runtime remains **pure Lua**; anything dynamic
-(paths, flags) is resolved **at build time** via templating and ahead-of-time
-compilation.
+centered on **rocks.nvim**. The build is driven by a **Makefile DAG using file
+targets and pattern rules**. Runtime remains **pure Lua** — anything dynamic is
+resolved **at build time** via templating (`*.lua.m4`) or ahead-of-time Fennel
+compilation (`*.fnl → *.lua`).
 
 Key decisions:
 
-* **Shell**: Bash (strict mode).
+* **Shell**: Bash (strict mode)
 * **Staging**: all artifacts assembled under `./stage/nvim/`, then installed to
-  `~/.config/nvim/`.
-* **Templating**: general rule `*.lua.m4 → *.lua` (environment written into
-  code at build time).
-* **Fennel**: build-time only; `*.fnl → *.lua` via a **vendored** `fennel.lua`
-  and a tiny CLI wrapper (no Neovim or luarocks needed to compile).
-* **Seeds**: only `rocks.nvim` and `rocks-git.nvim` are seeded (pinned) so
-  `:Rocks` commands work deterministically on a fresh machine.
-* **Isolation**: a dedicated LuaRocks tree/config under `~/.local/cache/nvim`
-  with PATH precedence for headless steps.
-* **Safety**: a module-path uniqueness guard prevents conflicts across `lua/`,
-  `lua.m4`, and `fnl/`.
+  the final config directory
+* **Templating**: `*.lua.m4 → *.lua` (encode environment directly in code)
+* **Fennel**: build-time only (`*.fnl → *.lua`), no dependency on Fennel at runtime
+* **Seeds**: `rocks.nvim` and `rocks-git.nvim` are cloned / pinned into
+  `pack/rocks/start` so `:Rocks` works visibly and deterministically on first
+  boot
+* **Isolation**: plugins install into a **hermetic LuaRocks tree**, not system
+  Lua
+* **Safety**: module-path uniqueness guard guarantees a module has exactly one
+  implementation
+
+The **runtime remains trivial**: load Lua and run.
+
+---
 
 ## Goals
 
-* **Capable system → bail fast** if prereqs are missing.
-* **Fully managed, isolated rocks**: nothing leaks into system Lua.
-* **Slim runtime**: heavy lifting during the build.
-* **rocks.nvim first** for package management.&#x20;
+* **Capable system → bail fast** on missing prereqs
+* **Fully managed and isolated plugin installation**
+* **Minimal runtime overhead** — do work *before* install
+* **rocks.nvim first**
+
+---
 
 ## Repository & directory layouts
 
-### Source repo
+### Source tree (updated: **single module tree**)
 
 ```
 repo/
-├─ nvim/                      # mirrors runtime layout
+├─ nvim/
 │  ├─ init.lua
 │  ├─ rocks.toml
-│  ├─ lua/                    # handwritten Lua and *.lua.m4 templates
-│  │  └─ config/
-│  │     └─ env.lua.m4        # template → env.lua at build time
-│  ├─ fnl/                    # optional: Fennel sources (build-time only)
-│  ├─ after/ ftplugin/ colors/ plugin/   # optional trees
-├─ build/
-│  ├─ bin/                    # tools used by the build (e.g., fennel wrapper)
-│  ├─ m4/                     # shared macros (e.g., common.m4)
-│  └─ scripts/
-│     ├─ fennel.lua           # vendored Fennel compiler
-│     └─ generate-help.awk    # AWK for `make help` (#> / #!)
-├─ stage/                     # assembled install image (gitignored)
+│  ├─ lua/                     # one logical module tree
+│  │   ├─ config/
+│  │   │   ├─ env.lua.m4       # m4 template → Lua
+│  │   │   ├─ session.fnl      # Fennel → Lua
+│  │   │   └─ ui.lua           # plain Lua
+│  │   └─ lsp/...
+│  ├─ after/ ftplugin/ colors/ plugin/   # optional
+├─ build/                      # build assets, not installed
+│  ├─ bin/                     # e.g., vendored fennel
+│  └─ m4/                      # shared macros
+├─ stage/                      # assembled install image (gitignored)
 └─ Makefile
 ```
 
-### Installed runtime (`~/.config/nvim/`)
+**Invariant:** For a given module path (e.g., `config.session`), **exactly
+one** of the following exists in `nvim/lua/**`:
+
+* `module.lua`
+* `module.lua.m4`
+* `module.fnl`
+
+This keeps reviews clean — the *module* is the unit of thought.
+
+### Installed runtime
 
 ```
-~/.config/nvim/
+NVIM_CONFIG_DIR/
 ├─ init.lua
 ├─ rocks.toml
 ├─ rocks.lock
-├─ lua/          # includes rendered templates and compiled fnl
-├─ after/ ftplugin/ colors/ plugin/
+├─ lua/        # rendered templates + compiled fnl + copied lua
+├─ after/ plugin/ ...
 └─ pack/rocks/start/
-   ├─ rocks.nvim
-   └─ rocks-git.nvim
+     ├─ rocks.nvim
+     └─ rocks-git.nvim
 ```
 
-### Hermetic cache
+### Hermetic rocks tree
 
 ```
-~/.local/cache/nvim/
-├─ rocks/        # isolated rocks tree (code & native libs live here)
-└─ luarocks/     # LUAROCKS_CONFIG lives here
+NVIM_ROCKS_DIR/
+├─ share/lua/5.1/ ...
+└─ lib/lua/5.1/ ...
 ```
 
-## 4) Build DAG
+---
+
+## Destination path resolution (updated)
+
+We respect XDG environment variables automatically:
+
+```make
+XDG_CONFIG_HOME ?= ${HOME}/.config
+XDG_CACHE_HOME  ?= ${HOME}/.cache
+
+NVIM_CONFIG ?= ${XDG_CONFIG_HOME}/nvim
+NVIM_ROCKS  ?= ${XDG_CACHE_HOME}/nvim/rocks
+```
+
+Make evaluates:
+
+```make
+NVIM_CONFIG_DIR := ${NVIM_CONFIG}
+NVIM_ROCKS_DIR  := ${NVIM_ROCKS}
+```
+
+Only `NVIM_CONFIG` and `NVIM_ROCKS` are documented overrides.
+The **internal repository structure is not user-configurable on purpose**.
+
+---
+
+## Build DAG
 
 ```mermaid
 graph TD
@@ -91,77 +130,166 @@ graph TD
   V --> L
   L --> Y[plugins-sync]
   V --> Y
-  Y --> I[install → ~/.config/nvim]
+  Y --> I[install → NVIM_CONFIG_DIR]
   I --> M[smoke]
 ```
 
-## 5Tasks & responsibilities (Makefile)
+> **This remains the conceptual phase model** — not a `.PHONY` list.
 
-* **verify**: check `bash`, `nvim ≥ 0.10`, `git`, `curl/wget`, `m4`, and
-  **`lua` or `luajit` (5.1 ABI)**. Fail fast with clear messages.
-* **guard-modpaths**: ensure no module path is defined by more than one of
-  `lua/`, `lua.m4`, `fnl/`.
-* **render-templates**: general `*.lua.m4 → *.lua` with `m4 -P` and repo
-  macros. Defines passed include:
+---
 
-  * `ROCKS_TREE`, `LUAROCKS_CONFIG`, `CACHE_HOME`, `CONFIG_HOME`,
-  * `NVIM_CONFIG_DIR`, `STAGE_NVIM_DIR`, `NVIM_ENV`, `TOOLCHAIN_BIN`.
-* **fennel-compile**: `*.fnl → *.lua` using `build/bin/fennel`, which runs our
-  vendored `build/scripts/fennel.lua` via host `luajit` or `lua`.
-* **assemble**: copy sources + rendered Lua + compiled Fennel into
-  `stage/nvim/`.
-* **seed-managers**: clone & **pin** `rocks.nvim` and `rocks-git.nvim` into
-  `stage/nvim/pack/rocks/start/…` (commit SHA or ref).
-* **plugins-lock**: `:Rocks lock` headless **against `stage/`**, with PATH
-  precedence to ensure the right tools.
-* **plugins-sync**: `:Rocks sync` headless, installing into the **hermetic
-  rocks tree**.
-* **install**: rsync `stage/nvim/` → `~/.config/nvim/`.
-* **smoke**: headless boot check.
-* **clean / uninstall**: remove artifacts; `uninstall FORCE=1` also removes
-  `~/.config/nvim`.
+## Makefile public interface (updated)
 
-## External tool expectations
+Human-facing `.PHONY` targets:
 
-We verify rocks.nvim’s documented prerequisites:
+| Target      | Purpose                                                    |
+| ----------- | ---------------------------------------------------------- |
+| `help`      | list available commands                                    |
+| `show`      | show key Makefile variables / resolved paths               |
+| `stage`     | produce a full `stage/nvim` image with transformed sources |
+| `runtime`   | copy the runtime into stage                                |
+| `seed`      | install + pin seed plugin repos into stage                 |
+| `install`   | sync stage to `NVIM_CONFIG_DIR`                            |
+| `test`      | conduct a smoke test                                       |
+| `clean`     | remove `stage/`                                            |
+| `uninstall` | remove install (and optionally cache)                      |
 
-* **Neovim ≥ 0.10**, `git`, `curl` or `wget`, `make`, `unzip` (if needed by
-  bootstrap paths).
-* **Lua/LuaJIT 5.1 on PATH** (binary name `lua` or `luajit`)—we verify and
-  prefer `luajit` when present.
-* **netrw** enabled (default), not explicitly disabled.
+Everything else is **file targets & pattern rules** — not front-facing commands.
 
-Headless steps prepend `build/bin` (and optional `TOOLCHAIN_BIN`) to PATH so
-rocks.nvim sees the intended tools first.
+---
 
-## Isolation & LuaRocks
+## Internal tasks & concepts (not `.PHONY`)
 
-* A dedicated `LUAROCKS_CONFIG` under `~/.local/cache/nvim/luarocks/` points
-  **exclusively** to `~/.local/cache/nvim/rocks` (no system tree).
-* Headless `:Rocks` invocations export `LUAROCKS_CONFIG` so any rocks-managed
-  artifacts land in the isolated tree.
-* If native rocks are used, we can enrich `LUAROCKS_CONFIG` with `variables`
-  (e.g., `LUA_INCDIR/LUA_LIBDIR`) based on detected host Lua/LuaJIT.
+These remain important in the design, even if not exposed directly:
 
-## Configuration strategy
+* **render-templates**: `*.lua.m4 → *.lua`
+* **fennel-compile**: `*.fnl → *.lua`
+* **assemble**: copy non-code + merge staged Lua into `stage/nvim/`
+* **seed-managers**: clone & pin `rocks.nvim` + `rocks-git.nvim`
+* **plugins-lock**: `:Rocks lock` headless against stage
+* **plugins-sync**: `:Rocks sync` into hermetic rocks tree
+* **smoke**: headless boot check
 
-* **Baseline config** uses `neovim-sensible` as the platform; our opinionated
-  layer will be added later.
-* All plugin declarations live in **`rocks.toml`**; we rely on the **native
-  lock** (`rocks.lock`). Seeds are not required to be listed in TOML; they are
-  installed/pinned by the build to guarantee `:Rocks` availability from the
-  first run.&#x20;
-* **`env.lua`** is generated from `env.lua.m4` so runtime knows the actual
-  cache paths (`ROCKS_TREE`, `LUAROCKS_CONFIG`, etc.) without hard-coding them
-  in source.
+The build doc keeps these phases to preserve intent and debuggability.
+
+---
 
 ## CI outline
 
 1. `make verify`
-2. `make render-templates fennel-compile assemble`
-3. `make seed-managers`
-4. `make plugins-lock plugins-sync`
-5. `make install smoke`
+2. `make stage`
+3. `make seed`
+4. `make install`
+5. `make test`
 
-Cache `~/.local/cache/nvim/rocks` between runs keyed by `rocks.toml` + lock to
-speed up CI.
+Optional:
+Cache `NVIM_ROCKS_DIR` across CI runs keyed on `(rocks.toml + rocks.lock)`.
+
+---
+
+## Invariants (enforced via Make)
+
+1. **Exactly one implementation per module path**
+2. **All required tools exist**
+3. **No generated code in `nvim/`**
+4. **All generated Lua resides in `stage/nvim/lua/`**
+5. **Install comes only from stage**
+6. **Hermetic LuaRocks tree is always used for plugin installation**
+
+---
+
+## Makefile Conventions
+
+To keep the build system predictable, legible, and safe to change, all
+Makefiles in this repository follow the conventions below.
+
+### Variable syntax
+
+| Kind           | Syntax      |
+| -------------- | ----------- |
+| Variables      | `${VAR}`    |
+| Make functions | `$(func …)` |
+
+We use `${…}` for variables to clearly distinguish them from `$(…)` Make functions.
+
+---
+
+### Naming and purpose of variables
+
+| Case          | Meaning                                                                                                  |
+| ------------- | -------------------------------------------------------------------------------------------------------- |
+| **UPPERCASE** | Inputs / knobs that a user may set via environment or CLI (XDG variables, Neovim paths, toolchain hints) |
+| **lowercase** | Internal wiring, derived paths, file lists, stamps, and implementation details                           |
+
+Assignment rules:
+
+* `?=` is used **only for user-overridable defaults** (typically UPPERCASE)
+* `:=` is used **only for internal computed values** (typically lowercase)
+
+Examples:
+
+```make
+# Public defaults (user may override)
+XDG_CONFIG_HOME ?= ${HOME}/.config
+NVIM_CONFIG     ?= ${XDG_CONFIG_HOME}/nvim
+
+# Internal values
+nvim_src_dir    := ${CURDIR}/nvim
+stage_dir       := ${CURDIR}/stage
+stage_nvim_dir  := ${stage_dir}/nvim
+```
+
+This separation ensures the public interface stays intentional and the internal wiring cannot be changed accidentally.
+
+---
+
+### Repository structure overrides
+
+Only two overrides are supported and documented:
+
+| Variable      | Meaning                                       |
+| ------------- | --------------------------------------------- |
+| `NVIM_CONFIG` | Where the final Neovim config is installed    |
+| `NVIM_ROCKS`  | Where the hermetic LuaRocks tree is installed |
+
+Everything else — including the locations of `nvim/`, `stage/`, and internal Make variables — is **not configurable on purpose**.
+This protects the build from states that appear “flexible” but are almost always broken.
+
+---
+
+### File organization across Makefiles
+
+To keep responsibilities crisp, Make logic is split by area of concern:
+
+```
+Makefile    → Public interface and orchestration
+stage.mk    → Build the stage image (templating, Fennel, copies)
+seed.mk     → Install and pin seed plugins; lock/sync via rocks.nvim
+```
+
+`Makefile` contains only:
+
+* Variable defaults (UPPERCASE)
+* Includes for subordinate `*.mk` files
+* Public `.PHONY` targets (`help`, `display`, `verify`, `stage`, `seed`, `install`, `clean`, `uninstall`)
+
+`stage.mk` and `seed.mk` contain only internal logic and define only lowercase variables (e.g., `stage_*`, `seed_*` namespaces).
+
+---
+
+### Phony targets vs. file targets
+
+* `.PHONY` targets exist **only for humans** — they must be few and stable.
+* All real work is expressed in **file targets** and **pattern rules**.
+* Invariants (e.g., duplicate module paths) are caught **at parse time**, not as `.PHONY` rules.
+
+This preserves a clean human interface while retaining a rich internal DAG for correctness and incremental rebuilds.
+
+---
+
+These conventions ensure that the Make system remains:
+
+* predictable to reason about,
+* safe to extend,
+* easy to debug,
+* and intentionally constrained rather than “configurable by accident.”
