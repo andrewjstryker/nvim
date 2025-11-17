@@ -56,7 +56,9 @@ repo/
 │  ├─ bin/                     # e.g., vendored fennel
 │  └─ m4/                      # shared macros
 ├─ stage/                      # assembled install image (gitignored)
-└─ Makefile
+├─ Makefile                    # interface and orchestration
+├─ stage.mk                    # prepare Lua modules
+└─ seed.mk                     # prepare hermatic Lua Rocks
 ```
 
 **Invariant:** For a given module path (e.g., `config.session`), **exactly
