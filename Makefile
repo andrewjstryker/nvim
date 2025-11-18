@@ -15,10 +15,14 @@
 SHELL := bash
 .SHELLFLAGS := --noprofile --norc -euo pipefail -c
 
-# Follow XDG Base Directory Specification, preferring environment variables if
-# set or defaulting to standard locations if not
-XDG_CONFIG_HOME ?= ${HOME}/.config
-XDG_CACHE_HOME  ?= ${HOME}/.cache
+#------------------------------------------------------------------------------#
+#
+# Include concern specfic files
+#
+#------------------------------------------------------------------------------#
+
+# environment variables
+include environment.mk
 
 NVIM_CONFIG_DIR ?= ${XDG_CONFIG_HOME}/nvim
 NVIM_CACHE_DIR  ?= ${XDG_CACHE_HOME}/nvim
