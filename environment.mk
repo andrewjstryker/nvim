@@ -28,6 +28,9 @@ NVIM_CACHE_DIR  ?= ${XDG_CACHE_HOME}/nvim
 ROCKS_NVIM_REPO ?= https://github.com/nvim-neorocks/rocks.nvim.git
 ROCKS_NVIM_REF  ?= HEAD
 
+ROCKS_GIT_REPO  ?= https://github.com/nvim-neorocks/rocks-git.nvim.git
+ROCKS_GIT_REF   ?= HEAD
+
 #------------------------------------------------------------------------------#
 #
 # Summarize variable values

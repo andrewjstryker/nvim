@@ -2,79 +2,36 @@
 #
 # Makefile
 #
-# Build and install Neovim configuration
+# Build, install, and sync Neovim configuration
 #
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 
 #------------------------------------------------------------------------------#
-#
-# Configuration
-#
+# Configure execution
 #------------------------------------------------------------------------------#
 
 SHELL := bash
 .SHELLFLAGS := --noprofile --norc -euo pipefail -c
 
 #------------------------------------------------------------------------------#
-#
-# Include concern specfic files
-#
+# Includes
 #------------------------------------------------------------------------------#
 
-# environment variables
+# environment variables (user-facing knobs)
 include environment.mk
 
-NVIM_CONFIG_DIR ?= ${XDG_CONFIG_HOME}/nvim
-NVIM_CACHE_DIR  ?= ${XDG_CACHE_HOME}/nvim
+# project-wide derived variables and structure
+include project.mk
 
-# rocks.nvim: cloned once, pinned via ROCKS_NVIM_REF (default: HEAD)
-ROCKS_NVIM_REPO ?= https://github.com/nvim-neorocks/rocks.nvim.git
-ROCKS_NVIM_REF  ?= HEAD
+# build Lua modules in stage
+include build.mk
 
-define env_summary
-  XDG_CONFIG_HOME............. ${XDG_CONFIG_HOME}
-  XDG_CACHE_HOME.............. ${XDG_CACHE_HOME}
-  NVIM_CONFIG_DIR............. ${NVIM_CONFIG_DIR}
-  NVIM_CACHE_DIR.............. ${NVIM_CACHE_DIR}
-  ROCKS_NVIM_REPO............. ${ROCKS_NVIM_REPO}
-  ROCKS_NVIM_REF.............. ${ROCKS_NVIM_REF}
-endef
+# seed Lua Rocks (rocks.nvim + rocks-git.nvim and LuaRocks config)
+include seed.mk
 
-ifneq (${SHOW_DEFS},)
-  #$(shell "printf \033[1;34mConfiguration variables:\033[0m\n")
-  $(info Configuration variables:)
-  $(info ${env_summary})
-endif
-
-# Set tool commands
-NVIM            ?= $(shell command -v nvim)
-RSYNC           ?= $(shell command -v rsync)
-GIT             ?= $(shell command -v git)
-AWK             ?= $(shell command -v awk)
-M4              ?= $(shell command -v m4)
-
-# Prefer luajit; fall back to lua 5.1
-LUA             ?= $(shell \
-  if command -v luajit >/dev/null 2>&1; then \
-    echo luajit; \
-  elif command -v lua >/dev/null 2>&1 && \
-       lua -v 2>&1 | grep -q 'Lua 5\.1'; then \
-    echo lua; \
-  elif command -v lua5.1 >/dev/null 2>&1; then \
-    echo lua5.1; \
-  else \
-    echo ""; \
-  fi \
-)
-
-define toolset_summary
-  LUA......................... ${LUA}
-  NVIM........................ ${NVIM}
-  RSYNC....................... ${RSYNC}
-  GIT......................... ${GIT}
-  AWK......................... ${AWK}
-  M4.......................... ${M4}
-endef
+#------------------------------------------------------------------------------#
+# Verify invariants (tools must exist)
+#------------------------------------------------------------------------------#
 
 toolset_vars := LUA NVIM RSYNC GIT AWK M4
 
@@ -86,67 +43,113 @@ missing_tools := \
   )
 
 ifneq (${missing_tools},)
-$(error Missing required tools: \
-${toolset_summary} \
-)
+  $(error Missing required tools: ${missing_tools})
 endif
-
-ifneq (${SHOW_DEFS},)
-$(info ${toolset_summary})
-endif
-
-include stage.mk
-include seed.mk
 
 #------------------------------------------------------------------------------#
-#
-# Public targets
-#
+# Human interface
 #------------------------------------------------------------------------------#
 
 .PHONY: help #> Show this help message
 help:
-	@${AWK} -f ${HELP_AWK} ${MAKEFILE_LIST}
+	@${AWK} -f ${build_dir}/bin/generate-help.awk ${MAKEFILE_LIST}
 
 .PHONY: show #> Show configuration variables
 show:
-ifeq (${SHOW_DEFS},)
-	@$(MAKE) SHOW_DEFS=1 show
-else
-	@:
-endif
+	@printf '%s\n\n' "Environment:" "${env_summary}"
+	@printf '%s\n\n' "Project:" "${project_summary}"
+	@printf '%s\n' "Tools:"
+	@printf '%s\n' "${toolset_summary}"
 
-.PHONY: stage #> Build the Neovim configuration in stage
-stage: ${staged_files}
+#------------------------------------------------------------------------------#
+# Build: stage code image (Lua, templates, Fennel)
+#------------------------------------------------------------------------------#
 
-.PHONY: runtime #> Copy the runtime to stage
-runtime: | ${stage_nvim_dir}
+.PHONY: build #> Build stage/nvim code image (Lua, templates, Fennel)
+build: ${stage_outputs}
+
+#------------------------------------------------------------------------------#
+# Build: runtime tree into stage
+#------------------------------------------------------------------------------#
+
+.PHONY: runtime #> Copy runtime dirs (after/, ftplugin/, colors/, plugin/) into stage
+runtime:
+	@mkdir -p "${stage_nvim_dir}"
 	@cd "${nvim_src_dir}" && \
 	  ${RSYNC} --archive --delete --ignore-missing-args \
 	    after ftplugin colors plugin \
-	    "${stage_nvim_dir}/"
+	    "${stage_nvim_dir}"
 
-.PHONY: seed #> Initialize Rocks seed packages
+.PHONY: stage #> Construct the entire staging directory
+stage: build runtime
+
+#------------------------------------------------------------------------------#
+# Seed: rocks.nvim + rocks-git.nvim + hermetic LuaRocks config
+#------------------------------------------------------------------------------#
+
+.PHONY: seed #> Clone/pin rocks.nvim + rocks-git.nvim and write LuaRocks config
 seed: ${seed_targets}
 
-.PHONY: install #> Install the built configuration into ${NVIM_CONFIG_DIR}
-install: stage seed runtime
-	@${RSYNC} --archive --delete ${stage_nvim_dir} ${NVIM_CONFIG_DIR}
+#------------------------------------------------------------------------------#
+# Install: sync stage → NVIM_CONFIG_DIR
+#------------------------------------------------------------------------------#
 
-.PHONY: smoke #> Run headless sanity check against installed config
-test: stage
-	@${HEADLESS_ENV} ${NVIM} --headless +"lua print('ok')" +qall &>/dev/null || { \
-		echo >&2 "Smoke test failed"; exit 1; }
-	@printf "\033[1;32mSmoke test passed.\033[0m\n"
+.PHONY: install #> Install staged Neovim config into NVIM_CONFIG_DIR
+install: stage seed
+	@echo "Installing Neovim config to ${NVIM_CONFIG_DIR}"
+	@mkdir -p "${NVIM_CONFIG_DIR}"
+	@${RSYNC} --archive --delete \
+	  "${stage_nvim_dir}/" \
+	  "${NVIM_CONFIG_DIR}/"
 
-.PHONY: clean #> Remove stage/ and hermetic rocks caches
+#------------------------------------------------------------------------------#
+# Sync: run :Rocks sync on installed config (post-install step)
+#------------------------------------------------------------------------------#
+
+.PHONY: sync #> Run :Rocks sync using installed config + hermetic rocks tree
+sync: install
+	@echo "Running Rocks sync on installed Neovim config..."
+	@LUAROCKS_CONFIG="${luarocks_config_file}" \
+	  NVIM_CONFIG="${NVIM_CONFIG_DIR}" \
+	  ${NVIM} --headless --clean \
+	    -u "${NVIM_CONFIG_DIR}/init.lua" \
+	    "+Rocks sync" \
+	    "+qa"
+
+#------------------------------------------------------------------------------#
+# Test: smoke test using temporary config/cache directories
+#------------------------------------------------------------------------------#
+
+.PHONY: test #> Smoke test: run sync with temporary NVIM_CONFIG_DIR / NVIM_CACHE_DIR
+test: clean
+	@tmp_cfg="$$(mktemp -d)"; \
+	tmp_cache="$$(mktemp -d)"; \
+	echo "Smoke test using:"; \
+	echo "  NVIM_CONFIG_DIR=$$tmp_cfg"; \
+	echo "  NVIM_CACHE_DIR=$$tmp_cache"; \
+	NVIM_CONFIG_DIR="$$tmp_cfg" \
+	NVIM_CACHE_DIR="$$tmp_cache" \
+	  ${MAKE} sync; \
+	status="$$?"; \
+	if [ "$$status" -eq 0 ]; then \
+	  echo "Smoke test succeeded."; \
+	else \
+	  echo "Smoke test FAILED (exit $$status)."; \
+	fi; \
+	rm -rf "$$tmp_cfg" "$$tmp_cache"; \
+	exit "$$status"
+
+#------------------------------------------------------------------------------#
+# Clean / uninstall
+#------------------------------------------------------------------------------#
+
+.PHONY: clean #> Remove stage/ and hermetic rocks cache
 clean:
-	@printf "\033[1;33mRemoving stage/ and hermetic rocks…\033[0m\n"
-	@rm -rf "${STAGE_ROOT}"
-	@rm -rf "${ROCKS_TREE}" "${LUAROCKS_DIR}"
+	@printf "\033[1;33mRemoving stage/ and hermetic rocks cache…\033[0m\n"
+	@rm -rf "${stage_dir}" "${nvim_rocks_dir}" "${luarocks_config_dir}"
 	@printf "\033[1;32mArtifacts removed.\033[0m\n"
 
-.PHONY: clean #! Clean artifacts; FORCE=1 also removes ${NVIM_CONFIG_DIR}
+.PHONY: uninstall #! Clean artifacts; FORCE=1 also removes ${NVIM_CONFIG_DIR}
 uninstall: clean
 	@if [[ "${FORCE:-0}" == "1" ]]; then \
 		printf "\033[1;33mFORCE=1: removing %s\033[0m\n" "${NVIM_CONFIG_DIR}"; \
@@ -156,4 +159,3 @@ uninstall: clean
 			"${NVIM_CONFIG_DIR}"; \
 	fi
 
-#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
