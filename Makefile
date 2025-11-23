@@ -109,7 +109,7 @@ install: stage seed
 .PHONY: sync #> Run :Rocks sync using installed config + hermetic rocks tree
 sync: install
 	@echo "Running Rocks sync on installed Neovim config..."
-	@LUAROCKS_CONFIG="${luarocks_config_file}" \
+	@LUAROCKS_CONFIG="${luarocks_config}" \
 	  NVIM_CONFIG="${NVIM_CONFIG_DIR}" \
 	  ${NVIM} --headless --clean \
 	    -u "${NVIM_CONFIG_DIR}/init.lua" \
