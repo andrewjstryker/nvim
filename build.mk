@@ -46,6 +46,8 @@ rwildcard = $(wildcard $1$2) \
             $(foreach d,$(wildcard $1*/), \
               $(call rwildcard,$d,$2))
 
+# m4 templates
+m4_src          := $(call rwildcard,${build_dir}/m4/,*.m4) ${config_env}
 # All *.lua.m4 under nvim/lua
 lua_m4_src      := $(call rwildcard,${nvim_src_dir}/lua/,*.lua.m4)
 
@@ -108,7 +110,7 @@ ${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua
 	cp "$<" "$@"
 
 # 2. m4 templates → Lua
-${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua.m4
+${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua.m4 ${m4_src}
 	mkdir -p "$(dir $@)"
 	"${M4}" -P -I "${m4_include_dir}" "$<" > "$@"
 
