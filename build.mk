@@ -46,8 +46,8 @@ rwildcard = $(wildcard $1$2) \
             $(foreach d,$(wildcard $1*/), \
               $(call rwildcard,$d,$2))
 
-# m4 templates
-m4_src          := $(call rwildcard,${build_dir}/m4/,*.m4) ${config_env}
+# m4 templates, lazy
+m4_src           = $(call rwildcard,${build_dir}/m4/,*.m4)
 # All *.lua.m4 under nvim/lua
 lua_m4_src      := $(call rwildcard,${nvim_src_dir}/lua/,*.lua.m4)
 
@@ -92,12 +92,13 @@ $(call assert-unique,${stage_lua_all},Duplicate staged Lua targets detected)
 # Top-level files (init.lua, rocks.toml)
 #------------------------------------------------------------------------------#
 
-${stage_nvim_dir}/init.lua: ${nvim_src_dir}/init.lua
-	mkdir -p "$(dir $@)"
+${stage_nvim_dir}:
+	@mkdir -p "${stage_nvim_dir}"
+
+${stage_nvim_dir}/init.lua: ${nvim_src_dir}/init.lua | ${stage_nvim_dir}
 	cp "$<" "$@"
 
-${stage_nvim_dir}/rocks.toml: ${nvim_src_dir}/rocks.toml
-	mkdir -p "$(dir $@)"
+${stage_nvim_dir}/rocks.toml: ${nvim_src_dir}/rocks.toml | ${stage_nvim_dir}
 	cp "$<" "$@"
 
 #------------------------------------------------------------------------------#

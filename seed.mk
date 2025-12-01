@@ -96,8 +96,13 @@ ${seed_rocks_git_dir}: | ${seed_pack_dir}
 # Hermetic LuaRocks config
 #------------------------------------------------------------------------------#
 
+# Directories env.lua expects to exist (even before anything is installed)
+lua_share_dir := ${nvim_rocks_dir}/share/lua/5.1
+lua_lib_dir   := ${nvim_rocks_dir}/lib/lua/5.1
+
 ${luarocks_config}: | ${luarocks_config_dir}
 	@echo "Writing hermetic LuaRocks config to $@"
+	@mkdir -p "${lua_share_dir}" "${lua_lib_dir}"
 	@echo "rocks_trees = {" > "$@"
 	@echo "{ name = \"user\", root = \"${nvim_rocks_dir}\" }" >> "$@"
 	@echo "}" >> "$@"
