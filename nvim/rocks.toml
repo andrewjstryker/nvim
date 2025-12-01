@@ -1,0 +1,116 @@
+# rocks.toml — Neovim-first baseline, slim by default; filetype extras are optional.
+
+[rocks]
+# Non-Neovim Lua rocks (leave empty unless you add pure-Lua deps)
+
+[plugins]
+
+# --- managers / helpers (kept in TOML; also seeded during build for first boot) ---
+"nvim-neorocks/rocks.nvim"       = "2.45.1"
+"nvim-neorocks/rocks-git.nvim"   = "latest"
+"nvim-neorocks/rocks-config.nvim"= "latest"
+
+# --- sensible defaults (swap from neovim-sensible) ---
+"tpope/vim-sensible" = "latest"
+
+# --- git ---
+"lewis6991/gitsigns.nvim" = "latest"      # Neovim-native signs
+"tpope/vim-fugitive"      = "latest"      # still best-in-class porcelain
+
+# --- motions / editing (light, useful defaults) ---
+"ggandor/leap.nvim"        = "latest"
+"kylechui/nvim-surround"   = "latest"
+"numToStr/Comment.nvim"    = "latest"
+"windwp/nvim-autopairs"    = "latest"
+"folke/which-key.nvim"     = "latest"
+"ethanholz/nvim-lastplace" = "latest"
+
+# --- diagnostics UX (pairs well with LSP later) ---
+"folke/trouble.nvim" = "latest"
+
+# --- completion / AI (opt-in; enable if you use it) ---
+# "zbirenbaum/copilot.lua" = "latest"
+
+# --- theme / UI (opt-in set; uncomment as desired) ---
+# "nvim-tree/nvim-web-devicons" = "latest"
+# "nvim-lualine/lualine.nvim"   = "latest"
+# "lukas-reineke/indent-blankline.nvim" = "latest"
+# "shaunsingh/solarized.nvim"   = "latest"
+
+# --- search / pickers (uncomment to use; requires plenary) ---
+# "nvim-lua/plenary.nvim"       = "latest"
+# "nvim-telescope/telescope.nvim" = "latest"
+# Optional native sorter:
+# "nvim-telescope/telescope-fzf-native.nvim" = "latest"
+
+# --- file explorer (optional; many prefer just Telescope) ---
+# "nvim-tree/nvim-tree.lua" = "latest"
+
+# --- treesitter & LSP stack (enable when you’re ready to configure) ---
+# "nvim-treesitter/nvim-treesitter"            = "latest"
+# "nvim-treesitter/nvim-treesitter-textobjects"= "latest"
+# "neovim/nvim-lspconfig"                      = "latest"
+# "williamboman/mason.nvim"                    = "latest"
+# "williamboman/mason-lspconfig.nvim"          = "latest"
+# "j-hui/fidget.nvim"                          = "latest"
+# "stevearc/conform.nvim"                      = "latest"
+# "mfussenegger/nvim-lint"                     = "latest"
+
+# --- writing / focus (surface Neovim-native equivalents) ---
+# Prefer these over goyo/limelight:
+# "folke/zen-mode.nvim" = "latest"
+# "folke/twilight.nvim" = "latest"
+# Legacy Vim plugins kept for reference (use either set, not both):
+# "junegunn/goyo.vim"      = "latest"   # REPLACED by folke/zen-mode.nvim
+# "junegunn/limelight.vim" = "latest"   # REPLACED by folke/twilight.nvim
+
+# --- tmux navigation (surface a Lua alternative) ---
+# "alexghergh/nvim-tmux-navigation" = "latest"  # Better fit for Neovim + tmux
+# "christoomey/vim-tmux-navigator"  = "latest"  # Legacy Vimscript; consider the Lua alt above
+
+# --- tasks / build / encryption / sessions ---
+# DROPPED: "tpope/vim-dispatch"  = "latest"     # Neovim has native jobs/term; not needed
+"jamessan/vim-gnupg"  = "latest"               # still useful (transparent GPG)
+# Consider a Neovim-native session manager instead of Obsession:
+# "olimorris/persisted.nvim" = "latest"
+# "tpope/vim-obsession" = "latest"             # Legacy; ok to keep if you prefer its workflow
+
+# --- niche ---
+# "chrisbra/NrrwRgn" = "latest"                # Niche narrowing; keep only if you use it
+
+# --- languages / syntax (mark FT-specific plugins as optional) ---
+
+["jalvesaq/Nvim-R"]
+version = "latest"
+opt = true
+
+["chrisbra/csv.vim"]
+version = "latest"
+opt = true
+
+["ledger/vim-ledger"]
+version = "latest"
+opt = true
+
+["ekalinin/dockerfile.vim"]
+version = "latest"
+opt = true
+# Note: Treesitter has dockerfile grammar; enable treesitter to avoid this plugin.
+
+["vim-pandoc/vim-pandoc-syntax"]
+version = "latest"
+opt = true
+
+["vimwiki/vimwiki"]
+version = "latest"
+opt = true
+# Consider Neovim-first alternatives later (e.g., nvim-neorg/neorg or obsidian.nvim) if your workflow fits.
+
+["chrisbra/unicode.vim"]
+version = "latest"
+opt = true
+# Low impact on Neovim; keep optional or drop if unused.
+
+["gennaro-tedesco/nvim-jqx"]
+version = "latest"
+opt = true
