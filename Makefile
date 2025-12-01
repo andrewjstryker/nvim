@@ -110,10 +110,15 @@ install: stage seed
 sync: install
 	@echo "Running Rocks sync on installed Neovim config..."
 	@LUAROCKS_CONFIG="${luarocks_config}" \
-	  NVIM_CONFIG="${NVIM_CONFIG_DIR}" \
-	  ${NVIM} --headless --clean \
-	    -u "${NVIM_CONFIG_DIR}/init.lua" \
-	    "+Rocks sync" \
+	  ${NVIM} --headless -u NONE \
+	    --cmd "set rtp^=${NVIM_CONFIG_DIR} | set packpath^=${NVIM_CONFIG_DIR}" \
+	    "+lua local ok, err = pcall(function() \
+	      require('config.bootstrap').auto_setup() \
+	    end) \
+	    if not ok then \
+	      vim.api.nvim_err_writeln(err) \
+	      vim.cmd('cquit! 1') \
+	    end" \
 	    "+qa"
 
 #------------------------------------------------------------------------------#
