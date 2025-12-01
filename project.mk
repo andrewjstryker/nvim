@@ -31,6 +31,8 @@ nvim_src_dir   := ${repo_root}/nvim
 
 # Build assets (e.g., m4 macros, vendored tools)
 build_dir      := ${repo_root}/build
+build_bin      := ${build_dir}/bin
+m4_dir         := ${build_dir}/m4
 
 # Stage root and staged Neovim tree (assembled image)
 stage_dir      := ${repo_root}/stage
@@ -40,12 +42,34 @@ stage_nvim_dir := ${stage_dir}/nvim
 # Hermetic rocks tree + config bridge
 #------------------------------------------------------------------------------#
 
-# NVIM_CONFIG_DIR and NVIM_CACHE_DIR come from environment.mk. They are the
-# only user-facing directory knobs; everything else is derived from them.
-
 # Derive the hermetic LuaRocks tree root from NVIM_CACHE_DIR.
-# This matches the design doc's "NVIM_ROCKS" path in XDG cache.
-nvim_rocks_dir ?= ${NVIM_CACHE_DIR}/rocks
+config_env     := ${m4_dir}/config_env.m4
+#
+# Hermetic LuaRocks tree lives under ${nvim_rocks_dir} (from project.mk)
+# Derive a "cache root" and LuaRocks config path from it.
+nvim_rocks_dir := ${NVIM_CACHE_DIR}/rocks
+nvim_cache_root      := ${nvim_rocks_dir}
+luarocks_config_dir  := ${nvim_cache_root}/luarocks
+luarocks_config := ${luarocks_config_dir}/config.lua
+
+#------------------------------------------------------------------------------#
+# Stamp configuration into a file
+#------------------------------------------------------------------------------#
+
+.PHONY: ${config_env} #> Generate LuaRocks config environment m4
+${config_env}:
+	@mkdir -p "$(dir $@)"
+	@{ \
+	  echo "m4_dnl Auto-generated; do not edit"; \
+	  echo "m4_define(\`NVIM_ROCKS_DIR', \`${nvim_rocks_dir}')"; \
+	  echo "m4_define(\`LUAROCKS_CONFIG_DIR', \`${luarocks_config_dir}')"; \
+	  echo "m4_define(\`LUAROCKS_CONFIG', \`${luarocks_config}')"; \
+	} > "$@.tmp"
+	@if [ ! -f "$@" ] || ! cmp -s "$@.tmp" "$@"; then \
+	  mv "$@.tmp" "$@"; \
+	else \
+	  rm "$@.tmp"; \
+	fi
 
 #------------------------------------------------------------------------------#
 # Project summary (for "make show" or similar)
@@ -57,11 +81,11 @@ define project_summary
   # Source / build layout
   Neovim source.............. ${nvim_src_dir}
   Build dir.................. ${build_dir}
+  M4 template dir............ ${m4_dir}
   Stage dir.................. ${stage_dir}
   Stage Neovim............... ${stage_nvim_dir}
 
   # Install / cache layout
-  NVIM_CONFIG (install)...... ${NVIM_CONFIG}
   NVIM_CONFIG_DIR (input).... ${NVIM_CONFIG_DIR}
   NVIM_CACHE_DIR (input)..... ${NVIM_CACHE_DIR}
 
