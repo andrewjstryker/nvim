@@ -26,7 +26,7 @@ include project.mk
 # build Lua modules in stage
 include build.mk
 
-# seed Lua Rocks (rocks.nvim + rocks-git.nvim and LuaRocks config)
+# seed plugin managers (vendored submodules → stage)
 include seed.mk
 
 #------------------------------------------------------------------------------#
@@ -62,40 +62,23 @@ show:
 	@printf '%s\n' "${toolset_summary}"
 
 #------------------------------------------------------------------------------#
+# Build & stage
+#------------------------------------------------------------------------------#
+
 # Build: stage code image (Lua, templates, Fennel)
-#------------------------------------------------------------------------------#
-
 .PHONY: build #> Build stage/nvim code image (Lua, templates, Fennel)
-build: ${stage_outputs}
+build: ${config_env} ${stage_outputs}
 
-#------------------------------------------------------------------------------#
-# Build: runtime tree into stage
-#------------------------------------------------------------------------------#
-
-.PHONY: runtime #> Copy runtime dirs (after/, ftplugin/, colors/, plugin/) into stage
-runtime:
-	@mkdir -p "${stage_nvim_dir}"
-	@cd "${nvim_src_dir}" && \
-	  ${RSYNC} --archive --delete --ignore-missing-args \
-	    after ftplugin colors plugin \
-	    "${stage_nvim_dir}"
-
+# Stage: assemble the complete staging directory (code + runtime dirs + seeds)
 .PHONY: stage #> Construct the entire staging directory
-stage: build runtime
-
-#------------------------------------------------------------------------------#
-# Seed: rocks.nvim + rocks-git.nvim + hermetic LuaRocks config
-#------------------------------------------------------------------------------#
-
-.PHONY: seed #> Clone/pin rocks.nvim + rocks-git.nvim and write LuaRocks config
-seed: ${seed_targets}
+stage: build runtime ${seed_targets}
 
 #------------------------------------------------------------------------------#
 # Install: sync stage → NVIM_CONFIG_DIR
 #------------------------------------------------------------------------------#
 
 .PHONY: install #> Install staged Neovim config into NVIM_CONFIG_DIR
-install: stage seed
+install: stage
 	@echo "Installing Neovim config to ${NVIM_CONFIG_DIR}"
 	@mkdir -p "${NVIM_CONFIG_DIR}"
 	@${RSYNC} --archive --delete \
@@ -103,58 +86,73 @@ install: stage seed
 	  "${NVIM_CONFIG_DIR}/"
 
 #------------------------------------------------------------------------------#
-# Sync: run :Rocks sync on installed config (post-install step)
+# Sync: install + headless :Rocks sync
+#
+# This is the only step that requires network access.
+# rocks_sync.lua:
+#   - prepends NVIM_CONFIG_DIR to rtp/packpath (since we run with -u NONE)
+#   - requires config.env (wires hermetic paths + vim.g.rocks_nvim)
+#   - runs :packadd rocks.nvim + :Rocks sync
 #------------------------------------------------------------------------------#
 
-.PHONY: sync #> Run :Rocks sync using installed config + hermetic rocks tree
-sync: install
+.PHONY: sync #> Build, install, and run headless Rocks sync
+sync: install ${luarocks_config}
 	@echo "Running Rocks sync on installed Neovim config..."
 	@LUAROCKS_CONFIG="${luarocks_config}" \
+	  NVIM_CONFIG_DIR="${NVIM_CONFIG_DIR}" \
 	  ${NVIM} --headless -u NONE \
-	    --cmd "set rtp^=${NVIM_CONFIG_DIR} | set packpath^=${NVIM_CONFIG_DIR}" \
-	    "+lua local ok, err = pcall(function() \
-	      require('config.bootstrap').auto_setup() \
-	    end) \
-	    if not ok then \
-	      vim.api.nvim_err_writeln(err) \
-	      vim.cmd('cquit! 1') \
-	    end" \
-	    "+qa"
+	    +"luafile ${scripts_dir}/rocks_sync.lua" \
+	    +qa
 
 #------------------------------------------------------------------------------#
 # Test: smoke test using temporary config/cache directories
+#
+# Runs the full sync pipeline in temp dirs.  If sync completes and Neovim
+# starts, the project is working.
 #------------------------------------------------------------------------------#
 
-.PHONY: test #> Smoke test: run sync with temporary NVIM_CONFIG_DIR / NVIM_CACHE_DIR
-test: clean
+.PHONY: test #> Smoke test: full sync into temporary directories
+test: stage
 	@tmp_cfg="$$(mktemp -d)"; \
 	tmp_cache="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmp_cfg" "$$tmp_cache"' EXIT; \
 	echo "Smoke test using:"; \
 	echo "  NVIM_CONFIG_DIR=$$tmp_cfg"; \
 	echo "  NVIM_CACHE_DIR=$$tmp_cache"; \
 	NVIM_CONFIG_DIR="$$tmp_cfg" \
 	NVIM_CACHE_DIR="$$tmp_cache" \
-	  ${MAKE} sync; \
-	status="$$?"; \
-	if [ "$$status" -eq 0 ]; then \
-	  echo "Smoke test succeeded."; \
-	else \
-	  echo "Smoke test FAILED (exit $$status)."; \
-	fi; \
-	rm -rf "$$tmp_cfg" "$$tmp_cache"; \
-	exit "$$status"
+	  ${MAKE} install sync
+
+#------------------------------------------------------------------------------#
+# Verify: check rendered artifacts for unexpanded m4 tokens
+#------------------------------------------------------------------------------#
+
+.PHONY: verify #> Verify no unexpanded NV_M4_ tokens remain in staged Lua
+verify: build
+	@echo "Checking for unexpanded m4 tokens in staged Lua files..."
+	@if grep -rn 'NV_M4_' ${stage_nvim_dir}/lua/ 2>/dev/null; then \
+	  echo "ERROR: Unexpanded m4 tokens found in staged output"; \
+	  exit 1; \
+	fi
+	@echo "All clear."
 
 #------------------------------------------------------------------------------#
 # Clean / uninstall
 #------------------------------------------------------------------------------#
 
-.PHONY: clean #> Remove stage/ and hermetic rocks cache
+.PHONY: clean #> Remove stage/
 clean:
-	@printf "\033[1;33mRemoving stage/ and hermetic rocks cache…\033[0m\n"
-	@rm -rf "${stage_dir}" "${nvim_rocks_dir}" "${luarocks_config_dir}"
+	@printf "\033[1;33mRemoving stage/…\033[0m\n"
+	@rm -rf "${stage_dir}"
 	@printf "\033[1;32mArtifacts removed.\033[0m\n"
 
-.PHONY: uninstall #! Clean artifacts; FORCE=1 also removes ${NVIM_CONFIG_DIR}
+.PHONY: clean-cache #> Remove hermetic rocks cache
+clean-cache:
+	@printf "\033[1;33mRemoving hermetic rocks cache…\033[0m\n"
+	@rm -rf "${nvim_rocks_dir}" "${luarocks_config_dir}"
+	@printf "\033[1;32mCache removed.\033[0m\n"
+
+.PHONY: uninstall #> Remove installed config (FORCE=1 required) and stage
 uninstall: clean
 	@if [[ "${FORCE:-0}" == "1" ]]; then \
 		printf "\033[1;33mFORCE=1: removing %s\033[0m\n" "${NVIM_CONFIG_DIR}"; \
@@ -164,3 +162,7 @@ uninstall: clean
 			"${NVIM_CONFIG_DIR}"; \
 	fi
 
+.PHONY: uninstall-cache #> Remove installed config + hermetic cache
+uninstall-cache: uninstall clean-cache
+
+#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#

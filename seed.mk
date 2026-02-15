@@ -3,108 +3,75 @@
 # seed.mk
 #
 # Responsibilities:
-#   - Install seed plugin managers into ${NVIM_CONFIG_DIR}:
-#       * rocks.nvim
-#       * rocks-git.nvim
+#   - Copy vendored seed plugin managers into stage:
+#       * vendor/rocks.nvim      → stage/nvim/pack/rocks/start/rocks.nvim
+#       * vendor/rocks-git.nvim  → stage/nvim/pack/rocks/start/rocks-git.nvim
 #   - Prepare a hermetic LuaRocks tree under ${nvim_rocks_dir}.
-#   - Provide a helper target for running rocks.nvim lock/sync headlessly.
 #
 # Assumptions:
 #   - environment.mk has defined:
-#       NVIM_CONFIG_DIR, NVIM_CACHE_DIR,
-#       ROCKS_NVIM_REPO, ROCKS_NVIM_REF,
-#       ROCKS_GIT_REPO,  ROCKS_GIT_REF,
-#       NVIM, GIT, LUA, ...
+#       NVIM_CONFIG_DIR, NVIM_CACHE_DIR, NVIM, GIT, LUA, RSYNC, ...
 #   - project.mk has defined:
-#       nvim_rocks_dir
+#       vendor_dir, stage_nvim_dir, nvim_rocks_dir,
+#       luarocks_config_dir, luarocks_config
 #
-# The top-level Makefile should:
-#   - include this file,
-#   - use ${seed_targets} for file dependencies,
-#   - and wire a .PHONY "seed" target that also calls "seed_rocks_sync".
+# Pin management:
+#   Seed plugins are vendored as git submodules under vendor/.
+#   Updating a pin is:
+#     cd vendor/rocks.nvim && git checkout <ref> && cd ../..
+#     git add vendor/rocks.nvim && git commit
+#   Make's dependency model handles invalidation automatically.
 #
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 
 #------------------------------------------------------------------------------#
-# Internal paths (derived from env + project vars)
+# Internal paths
 #------------------------------------------------------------------------------#
 
-# Install location for seed plugins
-seed_pack_dir       := ${NVIM_CONFIG_DIR}/pack/rocks/start
+seed_pack_dir       := ${stage_nvim_dir}/pack/rocks/start
 seed_rocks_nvim_dir := ${seed_pack_dir}/rocks.nvim
 seed_rocks_git_dir  := ${seed_pack_dir}/rocks-git.nvim
 
-# All file targets that must exist after seeding.
-# The top-level Makefile can depend on ${seed_targets}.
+# All file/directory targets that must exist after seeding.
+# The top-level Makefile depends on ${seed_targets}.
 seed_targets := \
   ${seed_rocks_nvim_dir} \
   ${seed_rocks_git_dir} \
-  ${nvim_rocks_dir} \
   ${luarocks_config}
 
 #------------------------------------------------------------------------------#
-# Directory targets
+# Seed plugin managers: copy from vendor/ into stage
 #------------------------------------------------------------------------------#
 
-${NVIM_CONFIG_DIR}:
+${seed_pack_dir}:
 	mkdir -p "$@"
 
-${seed_pack_dir}: | ${NVIM_CONFIG_DIR}
-	mkdir -p "$@"
-
-${nvim_rocks_dir}:
-	mkdir -p "$@"
-
-${luarocks_config_dir}: | ${nvim_rocks_dir}
-	mkdir -p "$@"
-
-#------------------------------------------------------------------------------#
-# Seed plugin managers: rocks.nvim and rocks-git.nvim
-#------------------------------------------------------------------------------#
-
-${seed_rocks_nvim_dir}: | ${seed_pack_dir}
+${seed_rocks_nvim_dir}: ${vendor_dir}/rocks.nvim | ${seed_pack_dir}
 	@echo "Seeding rocks.nvim into $@"
-	@if [ ! -d "$@" ]; then \
-	  ${GIT} clone "${ROCKS_NVIM_REPO}" "$@"; \
-	else \
-	  echo "rocks.nvim already present, updating remote..."; \
-	  ${GIT} -C "$@" fetch --all --tags; \
-	fi; \
-	if [ "${ROCKS_NVIM_REF}" != "HEAD" ]; then \
-	  echo "Checking out rocks.nvim ref ${ROCKS_NVIM_REF}"; \
-	  ${GIT} -C "$@" checkout "${ROCKS_NVIM_REF}"; \
-	else \
-	  echo "Leaving rocks.nvim at HEAD"; \
-	fi
+	@${RSYNC} --archive --delete "$</" "$@/"
 
-${seed_rocks_git_dir}: | ${seed_pack_dir}
+${seed_rocks_git_dir}: ${vendor_dir}/rocks-git.nvim | ${seed_pack_dir}
 	@echo "Seeding rocks-git.nvim into $@"
-	@if [ ! -d "$@" ]; then \
-	  ${GIT} clone "${ROCKS_GIT_REPO}" "$@"; \
-	else \
-	  echo "rocks-git.nvim already present, updating remote..."; \
-	  ${GIT} -C "$@" fetch --all --tags; \
-	fi; \
-	if [ "${ROCKS_GIT_REF}" != "HEAD" ]; then \
-	  echo "Checking out rocks-git.nvim ref ${ROCKS_GIT_REF}"; \
-	  ${GIT} -C "$@" checkout "${ROCKS_GIT_REF}"; \
-	else \
-	  echo "Leaving rocks-git.nvim at HEAD"; \
-	fi
+	@${RSYNC} --archive --delete "$</" "$@/"
 
 #------------------------------------------------------------------------------#
 # Hermetic LuaRocks config
+#
+# This config tells LuaRocks to install into the hermetic rocks tree
+# (nvim_rocks_dir) rather than any system location.
 #------------------------------------------------------------------------------#
 
-# Directories env.lua expects to exist (even before anything is installed)
+# Directories that env.lua expects to exist (even before anything is installed)
 lua_share_dir := ${nvim_rocks_dir}/share/lua/5.1
 lua_lib_dir   := ${nvim_rocks_dir}/lib/lua/5.1
+
+${luarocks_config_dir}:
+	mkdir -p "$@"
 
 ${luarocks_config}: | ${luarocks_config_dir}
 	@echo "Writing hermetic LuaRocks config to $@"
 	@mkdir -p "${lua_share_dir}" "${lua_lib_dir}"
-	@echo "rocks_trees = {" > "$@"
-	@echo "{ name = \"user\", root = \"${nvim_rocks_dir}\" }" >> "$@"
-	@echo "}" >> "$@"
+	@printf 'rocks_trees = {\n  { name = "user", root = "%s" }\n}\n' \
+	  "${nvim_rocks_dir}" > "$@"
 
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#

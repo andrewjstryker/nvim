@@ -6,11 +6,10 @@
 #   - Copy top-level files (init.lua, rocks.toml)
 #   - Transform *.lua.m4 → *.lua via m4
 #   - Compile *.fnl → *.lua via fennel
+#   - Copy optional runtime dirs (after/, ftplugin/, colors/, plugin/)
 #
 # This file defines only file targets and internal variables.
-# The .PHONY interface targets (e.g., "stage", "runtime") live in the top-level
-# Makefile. Runtime trees (after/, ftplugin/, colors/, plugin/) are also handled
-# there via a simple rsync.
+# The .PHONY interface targets (e.g., "stage") live in the top-level Makefile.
 #
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 
@@ -46,12 +45,14 @@ rwildcard = $(wildcard $1$2) \
             $(foreach d,$(wildcard $1*/), \
               $(call rwildcard,$d,$2))
 
-# m4 templates, lazy
+# m4 macro files (all *.m4 under build/m4/); lazy expansion is intentional
+# so that config_env.m4 is picked up even when generated after parse.
 m4_src           = $(call rwildcard,${build_dir}/m4/,*.m4)
+
 # All *.lua.m4 under nvim/lua
 lua_m4_src      := $(call rwildcard,${nvim_src_dir}/lua/,*.lua.m4)
 
-# Plain Lua = all *.lua minus the .lua.m4 templates
+# Plain Lua = all *.lua under nvim/lua
 lua_plain_src   := $(call rwildcard,${nvim_src_dir}/lua/,*.lua)
 
 # All *.fnl under nvim/lua
@@ -66,10 +67,29 @@ fnl_out       := $(patsubst ${nvim_src_dir}/lua/%.fnl,${stage_nvim_dir}/lua/%.lu
 stage_lua_all := ${lua_plain_out} ${lua_m4_out} ${fnl_out}
 
 # All outputs that define the "code" part of a stage image.
-# The top-level Makefile may add runtime copying separately.
 stage_outputs := \
   ${top_out} \
   ${stage_lua_all}
+
+#------------------------------------------------------------------------------#
+# Optional runtime directories (after/, ftplugin/, colors/, plugin/)
+#
+# These are rsync'd wholesale if they exist in the source tree.
+# The .PHONY "runtime" target is defined here (not in the top-level Makefile)
+# because only build.mk knows which dirs to look for.
+#------------------------------------------------------------------------------#
+
+runtime_dirs := after ftplugin colors plugin
+runtime_src  := $(foreach d,${runtime_dirs},$(wildcard ${nvim_src_dir}/$d))
+
+.PHONY: runtime
+runtime:
+	$(if ${runtime_src}, \
+	  $(foreach d,${runtime_src}, \
+	    ${RSYNC} --archive --delete \
+	      "$d/" "${stage_nvim_dir}/$(notdir $d)/" && \
+	  ) true, \
+	  @true)
 
 #------------------------------------------------------------------------------#
 # Duplicate target guard (module-path uniqueness)
@@ -111,6 +131,9 @@ ${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua
 	cp "$<" "$@"
 
 # 2. m4 templates → Lua
+#    Depends on all m4 macro files (lazy m4_src) via order-only for config_env.m4
+#    and normal deps for static macros.  In practice, m4_src covers both;
+#    config_env.m4's PHONY nature means m4 templates rebuild when env changes.
 ${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua.m4 ${m4_src}
 	mkdir -p "$(dir $@)"
 	"${M4}" -P -I "${m4_include_dir}" "$<" > "$@"
