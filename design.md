@@ -154,7 +154,6 @@ repo/
 │  │   │   ├─ keymaps.lua
 │  │   │   ├─ autocmds.lua
 │  │   │   └─ util.lua
-│  │   └─ lsp/...
 │  ├─ after/ ftplugin/ colors/ plugin/   # optional runtime dirs
 ├─ build/
 │  ├─ bin/       # vendored tools (e.g., fennel)
@@ -376,28 +375,31 @@ git commit -m "pin rocks.nvim to v2.45.1"
 `seed.mk` copies vendored plugins into the stage:
 
 ```make
-${stage_nvim_dir}/pack/rocks/start/rocks.nvim: vendor/rocks.nvim
-	rsync -a --delete $</ $@/
-
-${stage_nvim_dir}/pack/rocks/start/rocks-git.nvim: vendor/rocks-git.nvim
-	rsync -a --delete $</ $@/
+.PHONY: seed-rocks-nvim
+seed-rocks-nvim: | ${seed_pack_dir}
+	@${RSYNC} --archive --delete "${vendor_dir}/rocks.nvim/" "${seed_rocks_nvim_dir}/"
 ```
 
-Make's dependency model handles invalidation automatically: if a submodule is
-updated (changing the directory mtime), the corresponding stage target rebuilds.
+Seed targets are `.PHONY` because directory mtimes are unreliable after
+`git submodule update`. Rsync is idempotent and fast for these small trees.
 
 ### LuaRocks config
 
-`seed.mk` also writes the hermetic LuaRocks config file. This config points
-LuaRocks at `nvim_rocks_dir` so all plugin installations are isolated:
+`seed.mk` also defines the hermetic LuaRocks config file target. This config
+points LuaRocks at `nvim_rocks_dir` so all plugin installations are isolated:
 
 ```make
 ${luarocks_config}: | ${luarocks_config_dir}
-	echo 'rocks_trees = {{ name = "user", root = "${nvim_rocks_dir}" }}' > $@
+	@printf 'rocks_trees = {\n  { name = "user", root = "%s" }\n}\n' \
+	  "${nvim_rocks_dir}" > "$@"
 ```
 
 The LuaRocks config is written to `${nvim_rocks_dir}/luarocks/config.lua`
 (derived from `NVIM_CACHE_DIR`, never hardcoded).
+
+**Note:** Although defined in `seed.mk`, the LuaRocks config target is an
+**install-time** concern (it writes to `NVIM_CACHE_DIR`, not `stage/`). It is
+consumed by the `sync` target in the top-level Makefile, not by `stage`.
 
 ---
 
@@ -406,34 +408,40 @@ The LuaRocks config is written to `${nvim_rocks_dir}/luarocks/config.lua`
 ```mermaid
 flowchart TD
   subgraph Prep["Preparation (repo-managed artifacts)"]
-    V["verify (tools + invariants)"] --> E["env-capture: build/m4/config_env.m4"]
-    E --> B["build.mk: stage/nvim (copy + m4 + fennel)"]
+    E["env-capture: build/m4/config_env.m4"]
+    E -.->|"order-only"| B["build.mk: stage/nvim (copy + m4 + fennel)"]
     B --> SD["seed.mk: vendor/ → stage/nvim/pack/rocks/start/"]
   end
 
   subgraph Install["Installation (destination-specific)"]
     I["install: stage/nvim → NVIM_CONFIG_DIR"]
-    I --> Y["sync: headless :Rocks sync → NVIM_CACHE_DIR/rocks"]
-    Y --> M["smoke: headless startup verification"]
+    LR["luarocks_config → NVIM_CACHE_DIR/rocks"]
+    I --> Y["sync: headless :Rocks sync"]
+    LR --> Y
   end
 
   SD --> I
 
   subgraph Test["Test (same pipeline, different roots)"]
     T["test: override NVIM_CONFIG_DIR + NVIM_CACHE_DIR (mktemp)"]
-    T --> I2["install"]
-    I2 --> Y2["sync"]
-    Y2 --> M2["smoke"]
+    T --> T2["make sync (recursive, with overridden vars)"]
+  end
+
+  subgraph Verify["Verification (standalone)"]
+    V["verify: grep for unexpanded NV_M4_ tokens"]
   end
 ```
 
 Notes:
 
-* The test pipeline is intentionally the **same** as install, just rooted in
-  temporary directories.
+* The test pipeline runs the **same** `make sync` target, just with overridden
+  `NVIM_CONFIG_DIR` and `NVIM_CACHE_DIR`.  Stage is rebuilt with temp paths so
+  m4-rendered files contain the correct roots.
 * Seed plugins are part of the stage, not a separate install-time step.
+* The `luarocks_config` target writes to `NVIM_CACHE_DIR` (install-time), not `stage/`.
 * Env capture is the only place we use content comparison to avoid spurious
-  timestamp churn.
+  timestamp churn.  Downstream targets use order-only prerequisites on it.
+* `verify` is standalone — run it manually or in CI to check for unexpanded tokens.
 
 ---
 
@@ -486,10 +494,12 @@ Human-facing `.PHONY` targets are intentionally few and stable:
 | ------------------ | ------------------------------------------------ |
 | `help`             | list available commands                          |
 | `show`             | display resolved paths and variables             |
-| `stage`            | prepare staged artifacts (code + seeds)          |
+| `build`            | build `stage/nvim/` code image (Lua + m4 + fnl)  |
+| `stage`            | prepare staged artifacts (code + runtime + seeds) |
 | `install`          | install staged artifacts into `NVIM_CONFIG_DIR`  |
 | `sync`             | install + headless `:Rocks sync`                 |
-| `test`             | full install + sync into temp directories        |
+| `test`             | full sync into temp directories (smoke test)     |
+| `verify`           | check staged Lua for unexpanded m4 tokens        |
 | `clean`            | remove `stage/`                                  |
 | `uninstall`        | remove installed config (requires `FORCE=1`)     |
 | `uninstall-cache`  | remove config + hermetic rocks cache             |
