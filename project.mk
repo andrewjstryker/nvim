@@ -8,7 +8,7 @@
 #   - Derive internal paths (repo root, nvim src, build, stage, vendor).
 #   - Bridge user-facing knobs from environment.mk into the variables expected
 #     by other *.mk files (e.g., NVIM_ROCKS_DIR, LUAROCKS_CONFIG).
-#   - Generate build/m4/config_env.m4 with content-comparison idempotence.
+#   - Generate stage/m4/config_env.m4 with content-comparison idempotence.
 #   - Provide a summary block suitable for "make show".
 #
 # Assumptions:
@@ -42,6 +42,10 @@ vendor_dir     := ${repo_root}/vendor
 stage_dir      := ${repo_root}/stage
 stage_nvim_dir := ${stage_dir}/nvim
 
+# Generated m4 macros live under stage/ (build output, not source tree).
+# Static m4 macros live under build/m4/ (source tree, checked in).
+stage_m4_dir   := ${stage_dir}/m4
+
 #------------------------------------------------------------------------------#
 # Hermetic rocks tree + bridge knobs
 #------------------------------------------------------------------------------#
@@ -61,9 +65,16 @@ LUAROCKS_CONFIG     := ${luarocks_config}
 
 #------------------------------------------------------------------------------#
 # Stamp configuration into a file
+#
+# config_env.m4 is generated into stage/m4/ so the source tree stays
+# read-only during build.  The m4 command in build.mk uses two -I flags
+# to search both build/m4/ (static) and stage/m4/ (generated).
+#
+# paths.m4 (in build/m4/) does m4_include(`config_env.m4') — m4 finds
+# it via the include path, regardless of which directory it lives in.
 #------------------------------------------------------------------------------#
 
-config_env := ${m4_dir}/config_env.m4
+config_env := ${stage_m4_dir}/config_env.m4
 
 # IMPORTANT DISCIPLINE (order-only dependency):
 #   ${config_env} is intentionally PHONY so it is re-evaluated every run (env is
@@ -107,7 +118,8 @@ define project_summary
   # Source / build layout
   Neovim source.............. ${nvim_src_dir}
   Build dir.................. ${build_dir}
-  M4 template dir............ ${m4_dir}
+  M4 static dir.............. ${m4_dir}
+  M4 generated dir........... ${stage_m4_dir}
   Vendor dir................. ${vendor_dir}
   Stage dir.................. ${stage_dir}
   Stage Neovim............... ${stage_nvim_dir}

@@ -20,6 +20,12 @@
 # Vendored fennel script and shared m4 macros live under ${build_dir}.
 # These are implementation details, not user knobs.
 fennel         := ${build_dir}/bin/fennel
+
+# m4 include paths:
+#   - m4_include_dir (build/m4/) contains static, checked-in macros
+#   - stage_m4_dir   (stage/m4/) contains generated macros (config_env.m4)
+# Both are passed via -I so that m4_include(`config_env.m4') in paths.m4
+# finds the generated file regardless of which directory it lives in.
 m4_include_dir := ${build_dir}/m4
 
 #------------------------------------------------------------------------------#
@@ -46,8 +52,9 @@ rwildcard = $(wildcard $1$2) \
               $(call rwildcard,$d,$2))
 
 # Static m4 macro files (constants.m4, paths.m4, common.m4, etc.)
-# These are NOT .PHONY and participate in normal timestamp-based rebuilds.
-m4_static_src := $(filter-out ${config_env},$(call rwildcard,${build_dir}/m4/,*.m4))
+# These live in build/m4/ (source tree) and are NOT .PHONY.
+# config_env.m4 is NOT here — it lives in stage/m4/ (generated).
+m4_static_src := $(call rwildcard,${build_dir}/m4/,*.m4)
 
 # All *.lua.m4 under nvim/lua
 lua_m4_src      := $(call rwildcard,${nvim_src_dir}/lua/,*.lua.m4)
@@ -143,13 +150,14 @@ ${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua | stage-dirs
 	cp "$<" "$@"
 
 # 2. m4 templates → Lua
-#    Static m4 files are normal prerequisites (rebuild when they change).
-#    config_env.m4 is order-only: its .PHONY nature triggers re-evaluation
-#    every run, but the cmp guard in project.mk means its mtime only changes
-#    when the content changes — so templates only re-render when the
-#    environment actually changes.
+#    Static m4 files (build/m4/) are normal prerequisites.
+#    config_env.m4 (stage/m4/) is order-only via ${config_env}: its .PHONY
+#    nature triggers re-evaluation every run, but the cmp guard in project.mk
+#    means its mtime only changes when the content changes.
+#
+#    Two -I flags: static macros in build/m4/, generated macros in stage/m4/.
 ${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua.m4 ${m4_static_src} | stage-dirs ${config_env}
-	"${M4}" -P -I "${m4_include_dir}" "$<" > "$@"
+	"${M4}" -P -I "${m4_include_dir}" -I "${stage_m4_dir}" "$<" > "$@"
 
 # 3. Fennel → Lua
 ${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.fnl | stage-dirs
