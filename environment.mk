@@ -74,6 +74,10 @@ M4    ?= $(shell command -v m4)
 #   - accept if output matches either "LuaJIT" or "Lua 5.1"
 #   - return candidate if accepted else empty
 #
+# Override semantics:
+#   - `make LUA=/usr/bin/luajit sync` works (command-line overrides)
+#   - `export LUA=...; make sync` works (ifndef respects env)
+#
 #------------------------------------------------------------------------------#
 
 # Stage 1 (candidate): allow user override; otherwise choose best available
@@ -90,8 +94,14 @@ LUA_CMD ?= $(shell \
 )
 
 # Stage 2 (validate candidate by version text; capture stdout+stderr)
-# Result convention: LUA is either a resolved executable path that is expected to work,
-# or empty.
+# Result convention: LUA is either a resolved executable path that is expected
+# to work, or empty.
+#
+# Uses ifndef so that:
+#   - make LUA=<path> ... (command-line) takes precedence
+#   - export LUA=<path> (environment) takes precedence
+#   - only when neither is set do we run the discovery shell
+ifndef LUA
 LUA := $(shell \
   cand='$(strip $(LUA_CMD))'; \
   if [ -z "$$cand" ]; then \
@@ -106,6 +116,7 @@ LUA := $(shell \
   out="$$( "$$cmd" -v 2>&1 )"; \
   echo "$$out" | grep -Eq 'LuaJIT|Lua 5\.1' && echo "$$cmd" || echo "" \
 )
+endif
 
 #------------------------------------------------------------------------------#
 #

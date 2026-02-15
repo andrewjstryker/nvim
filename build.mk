@@ -45,9 +45,9 @@ rwildcard = $(wildcard $1$2) \
             $(foreach d,$(wildcard $1*/), \
               $(call rwildcard,$d,$2))
 
-# m4 macro files (all *.m4 under build/m4/); lazy expansion is intentional
-# so that config_env.m4 is picked up even when generated after parse.
-m4_src           = $(call rwildcard,${build_dir}/m4/,*.m4)
+# Static m4 macro files (constants.m4, paths.m4, common.m4, etc.)
+# These are NOT .PHONY and participate in normal timestamp-based rebuilds.
+m4_static_src := $(filter-out ${config_env},$(call rwildcard,${build_dir}/m4/,*.m4))
 
 # All *.lua.m4 under nvim/lua
 lua_m4_src      := $(call rwildcard,${nvim_src_dir}/lua/,*.lua.m4)
@@ -72,6 +72,22 @@ stage_outputs := \
   ${stage_lua_all}
 
 #------------------------------------------------------------------------------#
+# Stage directory structure
+#
+# Create every needed output directory once, up front.  All file targets
+# depend on stage-dirs as an order-only prerequisite instead of running
+# mkdir in their recipes.
+#
+# $(sort ...) deduplicates, so this is always the minimal set.
+#------------------------------------------------------------------------------#
+
+stage_dirs := ${stage_nvim_dir} $(sort $(dir ${stage_lua_all}))
+
+.PHONY: stage-dirs
+stage-dirs:
+	@mkdir -p ${stage_dirs}
+
+#------------------------------------------------------------------------------#
 # Optional runtime directories (after/, ftplugin/, colors/, plugin/)
 #
 # These are rsync'd wholesale if they exist in the source tree.
@@ -84,20 +100,17 @@ runtime_src  := $(foreach d,${runtime_dirs},$(wildcard ${nvim_src_dir}/$d))
 
 .PHONY: runtime
 runtime:
-	$(if ${runtime_src}, \
-	  $(foreach d,${runtime_src}, \
-	    ${RSYNC} --archive --delete \
-	      "$d/" "${stage_nvim_dir}/$(notdir $d)/" && \
-	  ) true, \
-	  @true)
+	@for d in ${runtime_src}; do \
+	  ${RSYNC} --archive --delete "$$d/" "${stage_nvim_dir}/$$(basename $$d)/"; \
+	done
 
 #------------------------------------------------------------------------------#
 # Duplicate target guard (module-path uniqueness)
 #------------------------------------------------------------------------------#
 
 # Assert that a list of targets contains no duplicates.
-# Usage:
-#   $(call assert-unique,LIST,ERROR_MESSAGE)
+# Works because $(filter-out A,B) is non-empty when the strings A and B
+# differ — i.e., when $(words $(sort LIST)) < $(words LIST).
 define assert-unique
   $(if $(filter-out $(words $(sort ${1})),$(words ${1})), \
     $(error ${2} (list: ${1})) \
@@ -112,35 +125,34 @@ $(call assert-unique,${stage_lua_all},Duplicate staged Lua targets detected)
 # Top-level files (init.lua, rocks.toml)
 #------------------------------------------------------------------------------#
 
-${stage_nvim_dir}:
-	@mkdir -p "${stage_nvim_dir}"
-
-${stage_nvim_dir}/init.lua: ${nvim_src_dir}/init.lua | ${stage_nvim_dir}
+${stage_nvim_dir}/init.lua: ${nvim_src_dir}/init.lua | stage-dirs
 	cp "$<" "$@"
 
-${stage_nvim_dir}/rocks.toml: ${nvim_src_dir}/rocks.toml | ${stage_nvim_dir}
+${stage_nvim_dir}/rocks.toml: ${nvim_src_dir}/rocks.toml | stage-dirs
 	cp "$<" "$@"
 
 #------------------------------------------------------------------------------#
 # Lua modules: plain Lua, m4-templated Lua, and Fennel→Lua
+#
+# All pattern rules use stage-dirs (order-only) to guarantee the target
+# directory exists.  No recipe creates directories itself.
 #------------------------------------------------------------------------------#
 
 # 1. Plain Lua copy
-${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua
-	mkdir -p "$(dir $@)"
+${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua | stage-dirs
 	cp "$<" "$@"
 
 # 2. m4 templates → Lua
-#    Depends on all m4 macro files (lazy m4_src) via order-only for config_env.m4
-#    and normal deps for static macros.  In practice, m4_src covers both;
-#    config_env.m4's PHONY nature means m4 templates rebuild when env changes.
-${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua.m4 ${m4_src}
-	mkdir -p "$(dir $@)"
+#    Static m4 files are normal prerequisites (rebuild when they change).
+#    config_env.m4 is order-only: its .PHONY nature triggers re-evaluation
+#    every run, but the cmp guard in project.mk means its mtime only changes
+#    when the content changes — so templates only re-render when the
+#    environment actually changes.
+${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua.m4 ${m4_static_src} | stage-dirs ${config_env}
 	"${M4}" -P -I "${m4_include_dir}" "$<" > "$@"
 
 # 3. Fennel → Lua
-${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.fnl
-	mkdir -p "$(dir $@)"
+${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.fnl | stage-dirs
 	"${fennel}" --compile "$<" > "$@"
 
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
