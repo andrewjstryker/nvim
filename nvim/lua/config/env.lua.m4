@@ -1,84 +1,100 @@
--- env.lua.m4
+m4_dnl env.lua.m4
+m4_dnl
+m4_dnl Hermetic Neovim environment wiring.
+m4_dnl Rendered at build time: env.lua.m4 → env.lua
+m4_dnl
+m4_dnl Includes constants.m4 and paths.m4 (both use default m4 quoting).
+m4_dnl Macro references are placed outside quotes so they expand at render time.
+m4_dnl
+m4_include(`constants.m4')m4_dnl
+m4_include(`paths.m4')m4_dnl
+-- config/env.lua (generated from env.lua.m4 — do not edit)
 --
--- Wire Neovim to the hermetic rocks tree and LuaRocks config.
--- Rendered at build time via m4: *.lua.m4 → *.lua.
-
-m4_include(`constants.m4') m4_dnl'
-m4_include(`paths.m4') m4_dnl'
+-- Wires Neovim to the hermetic rocks tree and LuaRocks config.
+-- All paths are stamped at build time via m4. No runtime probing.
 
 local M = {}
 
--- Build-time injected roots (do not edit in Lua; change via Make/config_env.m4)
-M.nvim_rocks_dir       = "NVIM_ROCKS_DIR"
-M.luarocks_config = "LUAROCKS_CONFIG"
+-- Build-time injected roots
+M.nvim_rocks_dir  = "NV_M4_NVIM_ROCKS_DIR"
+M.luarocks_config = "NV_M4_LUAROCKS_CONFIG"
 
 -- Build-time derived Neovim site / pack directories
-M.site_dir   = "NVIM_SITE_DIR"
-M.opt_dir    = "NVIM_OPT_DIR"
-M.start_dir  = "NVIM_START_DIR"
+M.site_dir  = "NV_M4_SITE_DIR"
+M.opt_dir   = "NV_M4_OPT_DIR"
+M.start_dir = "NV_M4_START_DIR"
 
--- Build-time derived Lua search paths for modules
-M.lua_share_dir = "NVIM_ROCKS_DIR/share/lua/LUA_VER"
-M.lua_lib_dir  = "NVIM_ROCKS_DIR/lib/lua/LUA_VER"
+-- Lua module directories under the hermetic rocks tree
+M.lua_share_dir = "NV_M4_NVIM_ROCKS_DIR/share/lua/NV_M4_LUA_VER"
+M.lua_lib_dir   = "NV_M4_NVIM_ROCKS_DIR/lib/lua/NV_M4_LUA_VER"
 
--- Sanity checks: fail fast if required paths are missing.
--- If these don't exist, the hermetic setup cannot work correctly.
-local uv = vim and vim.loop or nil
-
-if uv then
-  local function assert_path(path, label)
-    local stat = uv.fs_stat(path)
-    assert(
-      stat and (stat.type == "file" or stat.type == "directory"),
-      ("env.lua: %s does not exist: %s"):format(label, path)
-    )
+-- Prepend a semicolon-separated path string (Lua package path style)
+local function prepend_path(original, prefix)
+  if not original or original == "" then
+    return prefix
   end
-
-  assert_path(M.nvim_rocks_dir,  "nvim_rocks_dir")
-  assert_path(M.lua_share_dir,   "lua_share_dir")
-  assert_path(M.lua_lib_dir,     "lua_lib_dir")
-  assert_path(M.luarocks_config, "luarocks_config")
-end
-
--- Helper: prepend without clobbering existing search paths.
-local function prepend_path(current, addition)
-  if not addition or addition == "" then
-    return current
-  end
-  if not current or current == "" then
-    return addition
-  end
-  return addition .. ";" .. current
+  return prefix .. ";" .. original
 end
 
 local function setup_paths()
-  -- 1. Neovim runtimepath / packpath: make hermetic site available,
-  --    but do not override user/custom paths.
-  if vim and vim.opt then
-    vim.opt.runtimepath:prepend(M.site_dir)
-    vim.opt.packpath:prepend(M.site_dir)
+  -- Allow requiring this module outside Neovim without error.
+  if not vim then
+    return
   end
 
-  -- 2. Lua search paths for modules installed into the hermetic tree.
-  package.path = prepend_path(
-    package.path,
-    M.lua_share_dir .. "/?.lua;" .. M.lua_share_dir .. "/?/init.lua"
-  )
+  ---------------------------------------------------------------------------
+  -- 1) Export LUAROCKS_CONFIG into the Neovim process environment.
+  ---------------------------------------------------------------------------
+  vim.env.LUAROCKS_CONFIG = M.luarocks_config
 
-  package.cpath = prepend_path(
-    package.cpath,
-    M.lua_lib_dir .. "/?.so"
-  )
+  ---------------------------------------------------------------------------
+  -- 2) Wire Neovim runtimepath / packpath to the hermetic site dir.
+  ---------------------------------------------------------------------------
+  vim.opt.runtimepath:prepend(M.site_dir)
+  vim.opt.packpath:prepend(M.site_dir)
+
+  ---------------------------------------------------------------------------
+  -- 3) Wire Lua module search paths to the hermetic rocks tree.
+  ---------------------------------------------------------------------------
+  do
+    local lua_paths = table.concat({
+      M.lua_share_dir .. "/?.lua",
+      M.lua_share_dir .. "/?/init.lua",
+    }, ";")
+    package.path = prepend_path(package.path, lua_paths)
+  end
+
+  do
+    local c_paths = table.concat({
+      M.lua_lib_dir .. "/?.so",
+      M.lua_lib_dir .. "/?.dylib",
+      M.lua_lib_dir .. "/?.dll",
+    }, ";")
+    package.cpath = prepend_path(package.cpath, c_paths)
+  end
+
+  ---------------------------------------------------------------------------
+  -- 4) Merge hermetic config into vim.g.rocks_nvim.
+  --
+  --    Layer onto any existing table instead of clobbering it.
+  ---------------------------------------------------------------------------
+  local existing = vim.g.rocks_nvim
+  if type(existing) ~= "table" then
+    existing = {}
+  end
+
+  vim.g.rocks_nvim = vim.tbl_extend("force", existing, {
+    rocks_path      = M.nvim_rocks_dir,
+    luarocks_config = M.luarocks_config,
+  })
 end
 
+-- Public API
 M.setup_paths = setup_paths
-
--- Backward-compatible entry point used by init.lua
 M.load = setup_paths
 
--- Contract: requiring this module wires the hermetic paths additively.
+-- Requiring this module wires the hermetic paths immediately.
 setup_paths()
 
 return M
-
 m4_dnl vim: ft=lua
