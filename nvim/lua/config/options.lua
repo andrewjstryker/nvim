@@ -10,7 +10,9 @@ vim.opt.signcolumn = "yes"
 -- Files & history
 vim.opt.undofile = true
 vim.opt.backup = true
-vim.opt.backupdir = "./.backup,."
+local backup_dir = vim.fn.stdpath("state") .. "/backup"
+vim.fn.mkdir(backup_dir, "p")
+vim.opt.backupdir = backup_dir
 vim.opt.swapfile = true
 vim.opt.shada = "'20,<50,s10,h"
 
