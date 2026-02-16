@@ -17,6 +17,9 @@
 "rocks-git.nvim"    = "scm"
 "rocks-config.nvim" = "scm"
 
+# --- search / pickers (plenary must be in the main [plugins] table) ---
+"plenary.nvim"      = "scm"
+
 # --- sensible defaults ---
 [plugins.vim-sensible]
 git = "tpope/vim-sensible"
@@ -55,6 +58,37 @@ git = "folke/trouble.nvim"
 [plugins.vim-gnupg]
 git = "jamessan/vim-gnupg"
 
+# --- completion (LSP + buffer + path + copilot integration) ---
+[plugins.nvim-cmp]
+git = "hrsh7th/nvim-cmp"
+
+[plugins.cmp-nvim-lsp]
+git = "hrsh7th/cmp-nvim-lsp"
+
+[plugins.cmp-buffer]
+git = "hrsh7th/cmp-buffer"
+
+[plugins.cmp-path]
+git = "hrsh7th/cmp-path"
+
+# --- formatting (black/ruff, styler, sql-formatter, prettier) ---
+[plugins.conform.nvim]
+git = "stevearc/conform.nvim"
+
+# --- SQL ---
+[plugins.vim-dadbod]
+git = "tpope/vim-dadbod"
+
+[plugins.vim-dadbod-ui]
+git = "kristijanhusak/vim-dadbod-ui"
+
+[plugins.vim-dadbod-completion]
+git = "kristijanhusak/vim-dadbod-completion"
+
+# --- Markdown rendering (in-buffer headings, tables, code blocks) ---
+[plugins.render-markdown.nvim]
+git = "MeanderingProgrammer/render-markdown.nvim"
+
 # --- languages / syntax (optional, loaded on demand) ---
 [plugins.Nvim-R]
 git = "jalvesaq/Nvim-R"
@@ -76,55 +110,54 @@ opt = true
 git = "vim-pandoc/vim-pandoc-syntax"
 opt = true
 
+# --- Theme / UI ---
+[plugins.solarized.nvim]
+git = "shaunsingh/solarized.nvim"
+
+[plugins.nvim-web-devicons]
+git = "nvim-tree/nvim-web-devicons"
+
+[plugins.lualine.nvim]
+git = "nvim-lualine/lualine.nvim"
+
+# --- search / pickers ---
+[plugins.telescope.nvim]
+git = "nvim-telescope/telescope.nvim"
+
+# --- Treesitter & LSP ---
+[plugins.nvim-treesitter]
+git = "nvim-treesitter/nvim-treesitter"
+
+[plugins.nvim-lspconfig]
+git = "neovim/nvim-lspconfig"
+
+# --- AI completion ---
+[plugins.copilot.lua]
+git = "zbirenbaum/copilot.lua"
+
+# --- Writing / focus ---
+[plugins.zen-mode.nvim]
+git = "folke/zen-mode.nvim"
+
+# --- Tmux ---
+[plugins.nvim-tmux-navigation]
+git = "alexghergh/nvim-tmux-navigation"
+
+# indent guides
+[plugins.indent-blankline.nvim]
+git = "lukas-reineke/indent-blankline.nvim"
+
+# wiki-style notes (render-markdown.nvim covers Markdown blogging better):
 [plugins.vimwiki]
 git = "vimwiki/vimwiki"
 opt = true
 
+# unicode table lookup (niche):
 [plugins.unicode.vim]
 git = "chrisbra/unicode.vim"
 opt = true
 
+# jq integration (occasional use):
 [plugins.nvim-jqx]
 git = "gennaro-tedesco/nvim-jqx"
 opt = true
-
-# --- commented out: enable when ready to configure ---
-
-# Theme / UI:
-# [plugins.solarized.nvim]
-# git = "shaunsingh/solarized.nvim"
-#
-# [plugins.nvim-web-devicons]
-# git = "nvim-tree/nvim-web-devicons"
-#
-# [plugins.lualine.nvim]
-# git = "nvim-lualine/lualine.nvim"
-#
-# [plugins.indent-blankline.nvim]
-# git = "lukas-reineke/indent-blankline.nvim"
-
-# Search / pickers:
-# [plugins]
-# "plenary.nvim" = "scm"
-#
-# [plugins.telescope.nvim]
-# git = "nvim-telescope/telescope.nvim"
-
-# Treesitter & LSP (enable when ready):
-# [plugins.nvim-treesitter]
-# git = "nvim-treesitter/nvim-treesitter"
-#
-# [plugins.nvim-lspconfig]
-# git = "neovim/nvim-lspconfig"
-
-# Completion / AI:
-# [plugins.copilot.lua]
-# git = "zbirenbaum/copilot.lua"
-
-# Writing / focus:
-# [plugins.zen-mode.nvim]
-# git = "folke/zen-mode.nvim"
-
-# Tmux:
-# [plugins.nvim-tmux-navigation]
-# git = "alexghergh/nvim-tmux-navigation"
