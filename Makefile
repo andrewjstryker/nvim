@@ -29,14 +29,14 @@ include project.mk
 # build Lua modules in stage
 include build.mk
 
-# seed plugin managers (vendored submodules → stage)
+# luarocks config + core rocks bootstrap
 include seed.mk
 
 #------------------------------------------------------------------------------#
 # Verify invariants (tools must exist)
 #------------------------------------------------------------------------------#
 
-toolset_vars := LUA NVIM RSYNC GIT AWK M4
+toolset_vars := LUA NVIM LUAROCKS RSYNC GIT AWK M4
 
 missing_tools := \
   $(strip \
@@ -45,8 +45,13 @@ missing_tools := \
     ) \
   )
 
+# Guard target: any target that needs the full toolset depends on this.
+# Targets like clean and help do NOT depend on it, so they work even when
+# tools are missing.
+.PHONY: check-tools
+check-tools:
 ifneq (${missing_tools},)
-  $(error Missing required tools: ${missing_tools})
+	$(error Missing required tools: ${missing_tools})
 endif
 
 #------------------------------------------------------------------------------#
@@ -57,12 +62,23 @@ endif
 help:
 	@${AWK} -f ${build_dir}/bin/generate-help.awk ${MAKEFILE_LIST}
 
+# show: display resolved paths and variables.
+#
+# Uses a heredoc to avoid shell quoting issues with paths that contain
+# special characters (the summary blocks may contain $(dir ...) expansions
+# with trailing slashes, etc.).
 .PHONY: show #> Show configuration variables
 show:
-	@printf '%s\n\n' "Environment:" "${env_summary}"
-	@printf '%s\n\n' "Project:" "${project_summary}"
-	@printf '%s\n' "Tools:"
-	@printf '%s\n' "${toolset_summary}"
+	@cat <<'SHOW_EOF'
+	Environment:
+	${env_summary}
+
+	Project:
+	${project_summary}
+
+	Tools:
+	${toolset_summary}
+	SHOW_EOF
 
 #------------------------------------------------------------------------------#
 # Build & stage
@@ -73,11 +89,11 @@ show:
 #   run, but the cmp guard means downstream files only rebuild when the
 #   content actually changes.
 .PHONY: build #> Build stage/nvim code image (Lua, templates, Fennel)
-build: ${stage_outputs} | ${config_env}
+build: check-tools ${stage_outputs} | ${config_env}
 
-# Stage: assemble the complete staging directory (code + runtime dirs + seeds)
+# Stage: assemble the complete staging directory (code + runtime dirs)
 .PHONY: stage #> Construct the entire staging directory
-stage: build runtime ${seed_targets}
+stage: build runtime
 
 #------------------------------------------------------------------------------#
 # Install: sync stage → NVIM_CONFIG_DIR
@@ -92,26 +108,27 @@ install: stage
 	  "${NVIM_CONFIG_DIR}/"
 
 #------------------------------------------------------------------------------#
-# Sync: install + headless :Rocks sync
+# Sync: install + sync all plugins from rocks.toml
 #
-# This is the only step that requires network access.
-# rocks_sync.lua:
-#   - prepends NVIM_CONFIG_DIR to rtp/packpath (since we run with -u NONE)
-#   - requires config.env (wires hermetic paths + vim.g.rocks_nvim)
-#   - runs :packadd rocks.nvim + :Rocks sync
+# Pipeline:
+#   1. stage + install  — copy config to NVIM_CONFIG_DIR
+#   2. luarocks_config  — write hermetic luarocks config.lua
+#   3. luarocks_wrapper — write wrapper script for rocks.nvim subprocess calls
+#   4. rocks-bootstrap  — install toml-edit (for rocks.toml parsing)
+#   5. rocks-sync       — parse rocks.toml with host Lua + toml-edit, then:
+#                           * install native rocks via luarocks CLI
+#                           * git-clone plugins into the pack directory
 #
-# The luarocks_config target is an install-time concern (writes to
-# NVIM_CACHE_DIR, not stage/), so it lives here rather than in stage.
+# rocks.toml is the single authority for package versions.
+# All steps are idempotent.  Steps 4-5 require network access.
+#
+# This produces the same on-disk layout that rocks.nvim and rocks-git.nvim
+# would create via interactive `:Rocks sync`.  At runtime, rocks.nvim and
+# rocks-git.nvim manage updates and additions interactively as normal.
 #------------------------------------------------------------------------------#
 
-.PHONY: sync #> Build, install, and run headless Rocks sync
-sync: install ${luarocks_config}
-	@echo "Running Rocks sync on installed Neovim config..."
-	@LUAROCKS_CONFIG="${luarocks_config}" \
-	  NVIM_CONFIG_DIR="${NVIM_CONFIG_DIR}" \
-	  ${NVIM} --headless -u NONE \
-	    +"luafile ${scripts_dir}/rocks_sync.lua" \
-	    +qa
+.PHONY: sync #> Build, install, and sync all plugins from rocks.toml
+sync: check-tools install rocks-sync
 
 #------------------------------------------------------------------------------#
 # Test: smoke test using temporary config/cache directories

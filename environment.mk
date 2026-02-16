@@ -53,11 +53,14 @@ endef
 #
 #------------------------------------------------------------------------------#
 
-NVIM  ?= $(shell command -v nvim)
-RSYNC ?= $(shell command -v rsync)
-GIT   ?= $(shell command -v git)
-AWK   ?= $(shell command -v awk)
-M4    ?= $(shell command -v m4)
+NVIM      ?= $(shell command -v nvim)
+RSYNC     ?= $(shell command -v rsync)
+GIT       ?= $(shell command -v git)
+AWK       ?= $(shell command -v awk)
+M4        ?= $(shell command -v m4)
+
+# luarocks script path (resolved after LUA discovery below)
+LUAROCKS_SCRIPT ?= $(shell command -v luarocks)
 
 #------------------------------------------------------------------------------#
 #
@@ -73,10 +76,6 @@ M4    ?= $(shell command -v m4)
 #   - run: <candidate> -v (capture stdout+stderr)
 #   - accept if output matches either "LuaJIT" or "Lua 5.1"
 #   - return candidate if accepted else empty
-#
-# Override semantics:
-#   - `make LUA=/usr/bin/luajit sync` works (command-line overrides)
-#   - `export LUA=...; make sync` works (ifndef respects env)
 #
 #------------------------------------------------------------------------------#
 
@@ -94,13 +93,8 @@ LUA_CMD ?= $(shell \
 )
 
 # Stage 2 (validate candidate by version text; capture stdout+stderr)
-# Result convention: LUA is either a resolved executable path that is expected
-# to work, or empty.
-#
-# Uses ifndef so that:
-#   - make LUA=<path> ... (command-line) takes precedence
-#   - export LUA=<path> (environment) takes precedence
-#   - only when neither is set do we run the discovery shell
+# Result convention: LUA is either a resolved executable path that is expected to work,
+# or empty.
 ifndef LUA
 LUA := $(shell \
   cand='$(strip $(LUA_CMD))'; \
@@ -120,6 +114,23 @@ endif
 
 #------------------------------------------------------------------------------#
 #
+# LuaRocks: run under the validated Lua 5.1 / LuaJIT
+#
+# The system `luarocks` CLI is a Lua script.  If the system default Lua is
+# 5.4+ (which makes for-loop variables const), luarocks' own code may fail
+# with "attempt to assign to const variable" errors.
+#
+# We avoid this by invoking the luarocks script explicitly under our
+# validated LUA binary:  $(LUA) $(LUAROCKS_SCRIPT)
+#
+# LUAROCKS is the ready-to-use command; seed.mk calls it directly.
+#
+#------------------------------------------------------------------------------#
+
+LUAROCKS := ${LUA} ${LUAROCKS_SCRIPT}
+
+#------------------------------------------------------------------------------#
+#
 # Summarize tools
 #
 #------------------------------------------------------------------------------#
@@ -127,6 +138,7 @@ endif
 define toolset_summary
   NVIM........................ ${NVIM}
   LUA......................... ${LUA}
+  LUAROCKS.................... ${LUAROCKS}
   RSYNC....................... ${RSYNC}
   GIT......................... ${GIT}
   AWK......................... ${AWK}

@@ -3,66 +3,45 @@
 # seed.mk
 #
 # Responsibilities:
-#   - Copy vendored seed plugin managers into stage:
-#       * vendor/rocks.nvim      → stage/nvim/pack/rocks/start/rocks.nvim
-#       * vendor/rocks-git.nvim  → stage/nvim/pack/rocks/start/rocks-git.nvim
+#   - Prepare a hermetic LuaRocks config under ${nvim_rocks_dir}.
+#   - Generate a luarocks wrapper script that runs luarocks under the
+#     validated Lua 5.1 / LuaJIT binary.
+#   - Bootstrap toml-edit so the sync script can parse rocks.toml.
+#   - Sync all plugins declared in rocks.toml:
+#       * Native rocks via the host luarocks CLI
+#       * Git-based plugins via git clone into the pack directory
 #
-# The hermetic LuaRocks config (luarocks_config) is also defined here but is
-# NOT a seed_target.  It is an install-time concern consumed by `sync` in the
-# top-level Makefile.
+# Design:
+#   The sync script (rocks_sync.lua) runs under the host Lua interpreter
+#   (not Neovim).  It uses toml-edit to parse rocks.toml, then shells out
+#   to luarocks and git to install each entry.
+#
+#   rocks.toml is the single authority for package versions.  Bootstrap
+#   installs only toml-edit (one rock); everything else — including
+#   rocks.nvim, rocks-git.nvim, and rocks-config.nvim — is installed by
+#   the sync script from rocks.toml.
+#
+#   This produces the same on-disk layout that rocks.nvim and rocks-git.nvim
+#   would produce via interactive `:Rocks sync`, so the runtime plugin
+#   managers find a fully populated environment on first boot.  At runtime,
+#   rocks.nvim and rocks-git.nvim manage updates and additions interactively.
 #
 # Assumptions:
 #   - environment.mk has defined:
-#       NVIM_CONFIG_DIR, NVIM_CACHE_DIR, NVIM, GIT, LUA, RSYNC, ...
+#       NVIM_CONFIG_DIR, NVIM_CACHE_DIR, NVIM, GIT, LUA, LUAROCKS,
+#       LUAROCKS_SCRIPT, RSYNC, ...
 #   - project.mk has defined:
-#       vendor_dir, stage_nvim_dir, nvim_rocks_dir,
-#       luarocks_config_dir, luarocks_config
-#
-# Pin management:
-#   Seed plugins are vendored as git submodules under vendor/.
-#   Updating a pin is:
-#     cd vendor/rocks.nvim && git checkout <ref> && cd ../..
-#     git add vendor/rocks.nvim && git commit
+#       nvim_rocks_dir, luarocks_config_dir, luarocks_config, luarocks_server,
+#       lua_share_dir, lua_lib_dir, hermetic_lua_path, hermetic_lua_cpath,
+#       luarocks_wrapper, scripts_dir
 #
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
-
-#------------------------------------------------------------------------------#
-# Internal paths
-#------------------------------------------------------------------------------#
-
-seed_pack_dir       := ${stage_nvim_dir}/pack/rocks/start
-seed_rocks_nvim_dir := ${seed_pack_dir}/rocks.nvim
-seed_rocks_git_dir  := ${seed_pack_dir}/rocks-git.nvim
-
-# Targets consumed by the top-level "stage" target.
-# These are PHONY because directory mtimes are unreliable after
-# `git submodule update`.  Rsync is idempotent and fast for these
-# small trees (~50 files each), so always running is cheap and correct.
-seed_targets := seed-rocks-nvim seed-rocks-git
-
-#------------------------------------------------------------------------------#
-# Seed plugin managers: copy from vendor/ into stage
-#------------------------------------------------------------------------------#
-
-${seed_pack_dir}:
-	mkdir -p "$@"
-
-.PHONY: seed-rocks-nvim
-seed-rocks-nvim: | ${seed_pack_dir}
-	@${RSYNC} --archive --delete "${vendor_dir}/rocks.nvim/" "${seed_rocks_nvim_dir}/"
-
-.PHONY: seed-rocks-git
-seed-rocks-git: | ${seed_pack_dir}
-	@${RSYNC} --archive --delete "${vendor_dir}/rocks-git.nvim/" "${seed_rocks_git_dir}/"
 
 #------------------------------------------------------------------------------#
 # Hermetic LuaRocks config
 #
 # This config tells LuaRocks to install into the hermetic rocks tree
 # (nvim_rocks_dir) rather than any system location.
-#
-# This is an install-time artifact (writes to NVIM_CACHE_DIR, not stage/).
-# The top-level Makefile's `sync` target depends on ${luarocks_config}.
 #------------------------------------------------------------------------------#
 
 ${luarocks_config_dir}:
@@ -70,7 +49,120 @@ ${luarocks_config_dir}:
 
 ${luarocks_config}: | ${luarocks_config_dir}
 	@echo "Writing hermetic LuaRocks config to $@"
-	@printf 'rocks_trees = {\n  { name = "user", root = "%s" }\n}\n' \
-	  "${nvim_rocks_dir}" > "$@"
+	@mkdir -p "${lua_share_dir}" "${lua_lib_dir}"
+	@printf '%s\n' \
+	  'rocks_trees = {' \
+	  '  { name = "user", root = "${nvim_rocks_dir}" }' \
+	  '}' \
+	  'variables = {' \
+	  '  LUA = "${LUA}",' \
+	  '  LUA_BINDIR = "$(dir ${LUA})",' \
+	  '}' \
+	  > "$@"
+
+#------------------------------------------------------------------------------#
+# Luarocks wrapper script
+#
+# rocks.nvim spawns luarocks as a subprocess via vim.system(), which needs
+# a single executable path (not "lua script" as two arguments).
+#
+# The luarocks binary installed as a rock inside the hermetic tree has a
+# shebang that points to the system Lua (often 5.4+), which fails with
+# "attempt to assign to const variable" in luarocks internals.
+#
+# This wrapper:
+#   - Is a single executable at a stable, predictable path
+#   - Invokes the host luarocks script under the validated Lua 5.1 / LuaJIT
+#   - Exports LUAROCKS_CONFIG to ensure hermetic tree usage
+#   - Exports LUA_PATH / LUA_CPATH for subprocess module isolation
+#   - Is referenced by env.lua via vim.g.rocks_nvim.luarocks_binary
+#
+# The wrapper uses the HOST luarocks script (${LUAROCKS_SCRIPT}) rather than
+# the copy installed inside the hermetic tree, because the hermetic copy's
+# path includes a version number that changes on upgrade.
+#------------------------------------------------------------------------------#
+
+${luarocks_wrapper}: | ${luarocks_config_dir}
+	@echo "Writing luarocks wrapper to $@"
+	@mkdir -p "$(dir $@)"
+	@printf '%s\n' \
+	  '#!/bin/bash' \
+	  '# Auto-generated by seed.mk — do not edit' \
+	  '#' \
+	  '# Wrapper that invokes luarocks under the validated Lua 5.1 / LuaJIT' \
+	  '# binary with hermetic environment isolation.' \
+	  '' \
+	  'export LUAROCKS_CONFIG="${luarocks_config}"' \
+	  'export LUA_PATH="${hermetic_lua_path}"' \
+	  'export LUA_CPATH="${hermetic_lua_cpath}"' \
+	  '' \
+	  'exec "${LUA}" "${LUAROCKS_SCRIPT}" "$$@"' \
+	  > "$@"
+	@chmod +x "$@"
+
+#------------------------------------------------------------------------------#
+# Bootstrap: install toml-edit
+#
+# The sync script needs toml-edit to parse rocks.toml.  We install it
+# directly as the minimal bootstrap — one rock, no version conflicts.
+#
+# Everything else (rocks.nvim, rocks-git.nvim, rocks-config.nvim, and all
+# user plugins) is installed by the sync script from rocks.toml.
+# rocks.toml is the single authority for package versions.
+#
+# Idempotent: luarocks skips already-installed packages.
+#------------------------------------------------------------------------------#
+
+.PHONY: rocks-bootstrap
+rocks-bootstrap: ${luarocks_config} ${luarocks_wrapper}
+	@echo "Bootstrapping toml-edit into ${nvim_rocks_dir}..."
+	@LUAROCKS_CONFIG="${luarocks_config}" \
+	  LUA_PATH="${hermetic_lua_path};;" \
+	  LUA_CPATH="${hermetic_lua_cpath};;" \
+	  ${LUAROCKS} --lua-version=5.1 \
+	    --tree "${nvim_rocks_dir}" \
+	    --server='${luarocks_server}' \
+	    install toml-edit
+	@echo "Bootstrap complete (toml-edit now available)."
+
+#------------------------------------------------------------------------------#
+# Full plugin sync
+#
+# Parse rocks.toml with the host Lua interpreter + toml-edit, then:
+#   - Install native rocks via luarocks
+#   - Clone git-based plugins into the Neovim pack directory
+#
+# The sync script runs under plain Lua (not Neovim).  It uses toml-edit
+# (available after rocks-bootstrap) to parse rocks.toml and shells out to
+# luarocks and git for each entry.
+#
+# Pack path structure (matches NV_M4_START_DIR / NV_M4_OPT_DIR in paths.m4):
+#   ${nvim_rocks_dir}/share/nvim/site/pack/rocks/{start,opt}/
+#
+# Idempotent: luarocks skips installed packages; existing clones are skipped.
+#------------------------------------------------------------------------------#
+
+.PHONY: rocks-sync
+rocks-sync: rocks-bootstrap
+	@echo "Syncing plugins from rocks.toml..."
+	@LUAROCKS_CONFIG="${luarocks_config}" \
+	  LUA_PATH="${hermetic_lua_path};;" \
+	  LUA_CPATH="${hermetic_lua_cpath};;" \
+	  ${LUA} ${scripts_dir}/rocks_sync.lua \
+	    "${NVIM_CONFIG_DIR}/rocks.toml" \
+	    "${nvim_rocks_dir}" \
+	    "${LUAROCKS}" \
+	    "${GIT}" \
+	    "${luarocks_server}"
+
+#------------------------------------------------------------------------------#
+# Exported targets
+#
+# The top-level Makefile depends on these.
+#   - luarocks_config:  install-time concern (writes to NVIM_CACHE_DIR)
+#   - luarocks_wrapper: install-time concern (writes to NVIM_CACHE_DIR)
+#   - rocks-bootstrap:  installs toml-edit for rocks.toml parsing
+#   - rocks-sync:       installs all plugins from rocks.toml
+#------------------------------------------------------------------------------#
 
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
