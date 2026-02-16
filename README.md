@@ -14,19 +14,20 @@ If all required tools are present,
 
 ### Prerequisites
 
-| Tool    | Role                                    |
-| ------- | --------------------------------------- |
-| `nvim`  | runtime                                 |
-| `lua` / `luajit` | fallback for Rocks bootstrap  |
-| `m4`    | template rendering (`*.lua.m4 → *.lua`) |
-| `git`   | submodule checkout                      |
-| `rsync` | atomic install and stage copy           |
-| `awk`   | minor tooling                           |
+| Tool         | Role                                    |
+| ------------ | --------------------------------------- |
+| `nvim`       | runtime                                 |
+| `lua` / `luajit` | host Lua 5.1 for build-time sync   |
+| `luarocks`   | package manager for Neovim rocks        |
+| `m4`         | template rendering (`*.lua.m4 → *.lua`) |
+| `git`        | cloning git-based plugins               |
+| `rsync`      | atomic install and stage copy           |
+| `awk`        | minor tooling                           |
 
 ### Install
 
 ```bash
-git clone --recurse-submodules <this repo>
+git clone <this repo>
 cd <repo>
 make sync
 ```
@@ -34,15 +35,29 @@ make sync
 This:
 
 1. builds the stage image (`stage/nvim/`)
-2. copies vendored seed plugins into `pack/rocks/start/`
-3. installs the config into `NVIM_CONFIG_DIR`
-4. runs a headless `:Rocks sync` to install plugins
+2. installs the config into `NVIM_CONFIG_DIR`
+3. bootstraps `toml-edit` into the hermetic rocks tree
+4. parses `rocks.toml` and installs all plugins (native rocks via `luarocks`,
+   git plugins via `git clone`)
 
-### If you already cloned without `--recurse-submodules`
+---
 
-```bash
-git submodule update --init
-```
+## Install-time vs runtime plugin management
+
+The build system and the runtime plugin managers operate on the **same
+contract**: the same directory layout, the same `rocks.toml` manifest, and
+the same hermetic rocks tree.
+
+**At install time**, the build system populates the environment
+non-interactively. A Lua script (`rocks_sync.lua`) runs under the host Lua
+interpreter — not Neovim — and uses `toml-edit` to parse `rocks.toml`. It
+installs native rocks via `luarocks` and clones git plugins into the pack
+directory. No interactive prompts, no Neovim invocation.
+
+**At runtime**, `rocks.nvim` and `rocks-git.nvim` are fully functional for
+interactive use: `:Rocks install`, `:Rocks update`, `:Rocks sync`, etc.
+They find a fully populated environment on first boot and manage it from
+there.
 
 ---
 
@@ -91,21 +106,6 @@ Defaults:
 ```bash
 NVIM_CONFIG_DIR=${XDG_CONFIG_HOME:-$HOME/.config}/nvim
 NVIM_CACHE_DIR=${XDG_CACHE_HOME:-$HOME/.cache}/nvim
-```
-
----
-
-## Updating seed plugins
-
-Seed plugin managers (`rocks.nvim` and `rocks-git.nvim`) are vendored as
-git submodules under `vendor/`. To update:
-
-```bash
-cd vendor/rocks.nvim
-git fetch && git checkout v2.46.0   # or whatever version
-cd ../..
-git add vendor/rocks.nvim
-git commit -m "bump rocks.nvim to v2.46.0"
 ```
 
 ---

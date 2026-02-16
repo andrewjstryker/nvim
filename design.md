@@ -22,7 +22,8 @@ Key decisions:
 
 * **Shell**: Bash (strict mode)
 * **Stage (build.mk)**: prepares *repo-managed artifacts only* under `stage/nvim/`
-* **Seed (seed.mk)**: copies vendored plugin managers into `stage/nvim/`
+* **Seed (seed.mk)**: bootstraps toml-edit via `luarocks`, then syncs all
+  plugins from `rocks.toml` using a host Lua script (no Neovim invocation)
 * **Install**: copies staged artifacts into `NVIM_CONFIG_DIR`
 * **Test**: performs a complete installation and sync using temporary directory
   overrides
@@ -158,10 +159,7 @@ repo/
 ├─ build/
 │  ├─ bin/       # vendored tools (e.g., fennel)
 │  ├─ m4/        # shared m4 macros + generated env capture
-│  └─ scripts/   # headless helper scripts (e.g., rocks_sync.lua)
-├─ vendor/
-│  ├─ rocks.nvim/       # git submodule, pinned to exact SHA
-│  └─ rocks-git.nvim/   # git submodule, pinned to exact SHA
+│  └─ scripts/   # build-time helper scripts (e.g., rocks_sync.lua)
 ├─ stage/        # build outputs (gitignored)
 ├─ Makefile
 ├─ environment.mk
@@ -301,26 +299,50 @@ repo:
 * render `*.lua.m4 → *.lua`
 * compile `*.fnl → *.lua`
 
-`seed.mk` copies vendored seed plugins into `stage/nvim/pack/rocks/start/`:
-
-* `vendor/rocks.nvim/ → stage/nvim/pack/rocks/start/rocks.nvim/`
-* `vendor/rocks-git.nvim/ → stage/nvim/pack/rocks/start/rocks-git.nvim/`
-
 No network access, no third-party clones, and no runtime state appear in stage.
 
 ### Installation (destination-specific)
 
 `install` copies `stage/nvim/** → NVIM_CONFIG_DIR/**` via rsync.
 
-### Sync
+### Sync (build-time plugin installation)
 
-`sync` runs a headless Neovim that:
+`seed.mk` handles all plugin installation at build time using the host Lua
+interpreter (not Neovim). The process has two stages:
 
-1. points `rtp`/`packpath` at the installed `NVIM_CONFIG_DIR`
-2. loads `config.env` (wires hermetic paths)
-3. runs `:Rocks sync` to install plugins into `nvim_rocks_dir`
+1. **Bootstrap**: install `toml-edit` via `luarocks` into the hermetic rocks
+   tree. This is the minimal bootstrap — one rock, no transitive baggage.
+   `toml-edit` is needed to parse `rocks.toml`.
+
+2. **Sync script** (`build/scripts/rocks_sync.lua`): runs under the host
+   LuaJIT / Lua 5.1 interpreter and uses `toml-edit` to parse `rocks.toml`.
+   For each entry:
+   * **Native rocks** (e.g., `"rocks.nvim" = "2.45.1"`): installed via
+     `luarocks install` into the hermetic tree. Pinned versions are installed
+     before unpinned (`scm`, `dev`) to prevent transitive dependency resolution
+     from pulling newer versions of already-pinned packages.
+   * **Git plugins** (e.g., `git = "lewis6991/gitsigns.nvim"`): cloned via
+     `git clone` into the Neovim pack directory at
+     `${nvim_rocks_dir}/share/nvim/site/pack/rocks/{start,opt}/`.
+
+`rocks.toml` is the **single authority** for package versions. The bootstrap
+installs only `toml-edit`; everything else — including `rocks.nvim`,
+`rocks-git.nvim`, and `rocks-config.nvim` — is installed by the sync script
+from `rocks.toml`.
+
+This produces the same on-disk layout that `rocks.nvim` and `rocks-git.nvim`
+would produce via interactive `:Rocks sync`, so the runtime plugin managers
+find a fully populated environment on first boot.
 
 This is the **only** step that requires network access.
+
+### Runtime plugin management
+
+At runtime, `rocks.nvim` and `rocks-git.nvim` are fully functional for
+interactive use: `:Rocks install`, `:Rocks update`, `:Rocks sync`, etc. The
+build system and the runtime plugin managers operate on the same contract
+(same directory layout, same `rocks.toml` manifest). The build system
+populates the environment; the runtime managers maintain it.
 
 ### Test (smoke)
 
@@ -329,7 +351,7 @@ directories:
 
 * `NVIM_CONFIG_DIR=$(mktemp -d …)`
 * `NVIM_CACHE_DIR=$(mktemp -d …)`
-* run the same build → install → seed → sync pipeline
+* run the same build → install → sync pipeline
 * verify that Neovim starts headlessly without errors
 
 This ensures that **test and install use identical logic**, differing only by
@@ -338,68 +360,65 @@ Neovim starts, the project is working.
 
 ---
 
-## Seed plugins (vendored submodules)
+## Seed plugins (luarocks-first bootstrap)
 
 ### Rationale
 
-Seed plugin managers (`rocks.nvim` and `rocks-git.nvim`) are **vendored as git
-submodules** under `vendor/` rather than cloned at build time. This provides:
+Plugin managers (`rocks.nvim`, `rocks-git.nvim`, `rocks-config.nvim`) and all
+user plugins are installed via the host `luarocks` CLI and `git` at build time.
+No vendored submodules are needed. This provides:
 
-* **No network dependency during build.** The build is fully offline. Network
-  access is only needed for `:Rocks sync` (which downloads the actual plugin
-  set).
-* **Trivial pin tracking.** Submodule SHAs are recorded in the repo. Changing
-  a pin is a `git submodule update` commit — visible in diffs, auditable, and
-  requires no custom stamp-file logic in Make.
-* **Simplified seed.mk.** Seeding becomes a directory copy (rsync), not a
-  clone + checkout + stamp-file dance.
-* **Reproducibility.** The exact seed plugin code is committed to the repo.
-
-### Submodule setup
-
-```bash
-git submodule add https://github.com/nvim-neorocks/rocks.nvim.git vendor/rocks.nvim
-git submodule add https://github.com/nvim-neorocks/rocks-git.nvim.git vendor/rocks-git.nvim
-```
-
-To pin to a specific release:
-
-```bash
-cd vendor/rocks.nvim && git checkout v2.45.1 && cd ../..
-git add vendor/rocks.nvim
-git commit -m "pin rocks.nvim to v2.45.1"
-```
+* **Single source of truth.** `rocks.toml` declares all plugins and their
+  versions. The build system reads it directly — there are no separate pins
+  to keep in sync.
+* **Minimal bootstrap.** Only `toml-edit` is installed before the sync script
+  runs. Everything else comes from `rocks.toml`.
+* **No version conflicts.** Pinned rocks are installed before unpinned ones,
+  so transitive dependency resolution never pulls a version that conflicts
+  with a pin.
+* **Reproducibility.** The same `rocks.toml` produces the same installed tree.
 
 ### seed.mk responsibility
 
-`seed.mk` copies vendored plugins into the stage:
+`seed.mk` has three concerns:
 
-```make
-.PHONY: seed-rocks-nvim
-seed-rocks-nvim: | ${seed_pack_dir}
-	@${RSYNC} --archive --delete "${vendor_dir}/rocks.nvim/" "${seed_rocks_nvim_dir}/"
-```
+1. **LuaRocks config**: write a hermetic `config.lua` that points luarocks at
+   `nvim_rocks_dir`. This is an install-time concern (writes to
+   `NVIM_CACHE_DIR`, not `stage/`).
 
-Seed targets are `.PHONY` because directory mtimes are unreliable after
-`git submodule update`. Rsync is idempotent and fast for these small trees.
+2. **LuaRocks wrapper**: generate a wrapper script that runs luarocks under
+   the validated Lua 5.1 / LuaJIT binary. Consumed by `rocks.nvim` at
+   runtime for subprocess calls.
 
-### LuaRocks config
+3. **Bootstrap + sync**: install `toml-edit`, then run the sync script to
+   install all plugins from `rocks.toml`.
 
-`seed.mk` also defines the hermetic LuaRocks config file target. This config
-points LuaRocks at `nvim_rocks_dir` so all plugin installations are isolated:
+### Sync script design
 
-```make
-${luarocks_config}: | ${luarocks_config_dir}
-	@printf 'rocks_trees = {\n  { name = "user", root = "%s" }\n}\n' \
-	  "${nvim_rocks_dir}" > "$@"
-```
+`rocks_sync.lua` runs under plain Lua (not Neovim). It:
 
-The LuaRocks config is written to `${nvim_rocks_dir}/luarocks/config.lua`
-(derived from `NVIM_CACHE_DIR`, never hardcoded).
+* parses `rocks.toml` via `toml_edit.parse_as_tbl()`
+* handles TOML dotted keys (e.g., `[plugins.gitsigns.nvim]` parses as nested
+  tables, not a flat key) via recursive traversal
+* partitions native rocks into pinned and unpinned groups
+* installs pinned rocks first, then unpinned, to satisfy transitive constraints
+* clones git plugins into `pack/rocks/{start,opt}/` based on the `opt` flag
+* is idempotent: luarocks skips installed packages; existing clones are skipped
 
-**Note:** Although defined in `seed.mk`, the LuaRocks config target is an
-**install-time** concern (it writes to `NVIM_CACHE_DIR`, not `stage/`). It is
-consumed by the `sync` target in the top-level Makefile, not by `stage`.
+### Abandoned approach: headless `:Rocks sync`
+
+The original design ran a headless Neovim that loaded `rocks.nvim` and
+executed `:Rocks sync` to install plugins. This was abandoned because
+`rocks.nvim` fires an interactive confirmation prompt via `nio` (async tasks)
+during headless sync. Multiple attempts to suppress the prompt — overriding
+`vim.fn.confirm`, `vim.ui.select`, and related functions — failed because the
+prompt fires asynchronously after overrides are restored. The `nio` task
+scheduler yields and resumes outside the scope of any synchronous wrapper.
+
+The shell+Lua approach avoids this entirely: it replicates the on-disk layout
+that `rocks.nvim` and `rocks-git.nvim` would produce, without invoking Neovim
+at all. The sync script shells out to `luarocks` and `git` directly, which are
+non-interactive by nature.
 
 ---
 
@@ -410,17 +429,19 @@ flowchart TD
   subgraph Prep["Preparation (repo-managed artifacts)"]
     E["env-capture: build/m4/config_env.m4"]
     E -.->|"order-only"| B["build.mk: stage/nvim (copy + m4 + fennel)"]
-    B --> SD["seed.mk: vendor/ → stage/nvim/pack/rocks/start/"]
   end
 
   subgraph Install["Installation (destination-specific)"]
     I["install: stage/nvim → NVIM_CONFIG_DIR"]
     LR["luarocks_config → NVIM_CACHE_DIR/rocks"]
-    I --> Y["sync: headless :Rocks sync"]
-    LR --> Y
+    BT["bootstrap: luarocks install toml-edit"]
+    SY["rocks_sync.lua: parse rocks.toml, install all plugins"]
+    I --> BT
+    LR --> BT
+    BT --> SY
   end
 
-  SD --> I
+  B --> I
 
   subgraph Test["Test (same pipeline, different roots)"]
     T["test: override NVIM_CONFIG_DIR + NVIM_CACHE_DIR (mktemp)"]
@@ -435,12 +456,14 @@ flowchart TD
 Notes:
 
 * The test pipeline runs the **same** `make sync` target, just with overridden
-  `NVIM_CONFIG_DIR` and `NVIM_CACHE_DIR`.  Stage is rebuilt with temp paths so
+  `NVIM_CONFIG_DIR` and `NVIM_CACHE_DIR`. Stage is rebuilt with temp paths so
   m4-rendered files contain the correct roots.
-* Seed plugins are part of the stage, not a separate install-time step.
+* The sync script runs under the host Lua interpreter, not Neovim. It uses
+  `toml-edit` (installed during bootstrap) to parse `rocks.toml` and shells
+  out to `luarocks` and `git` for each entry.
 * The `luarocks_config` target writes to `NVIM_CACHE_DIR` (install-time), not `stage/`.
 * Env capture is the only place we use content comparison to avoid spurious
-  timestamp churn.  Downstream targets use order-only prerequisites on it.
+  timestamp churn. Downstream targets use order-only prerequisites on it.
 * `verify` is standalone — run it manually or in CI to check for unexpanded tokens.
 
 ---
@@ -459,13 +482,31 @@ NVIM_CONFIG_DIR/
 │     ├─ autocmds.lua
 │     └─ util.lua
 ├─ after/ plugin/ ...
-└─ pack/rocks/start/
-     ├─ rocks.nvim/
-     └─ rocks-git.nvim/
+
+NVIM_CACHE_DIR/rocks/
+├─ luarocks/
+│  └─ config.lua         (hermetic luarocks config)
+├─ bin/
+│  └─ luarocks-wrapper   (runs luarocks under validated Lua 5.1)
+├─ lib/lua/5.1/          (native C modules: toml_edit.so, fzy, etc.)
+├─ share/lua/5.1/        (pure Lua modules: rocks.nvim, nio, etc.)
+└─ share/nvim/site/
+   └─ pack/rocks/
+      ├─ start/           (git plugins loaded at startup)
+      │  ├─ gitsigns.nvim/
+      │  ├─ which-key.nvim/
+      │  └─ ...
+      └─ opt/             (git plugins loaded on demand)
+         ├─ Nvim-R/
+         ├─ vimwiki/
+         └─ ...
 ```
 
-The presence of the seed plugins in `pack/rocks/start/` guarantees that
-`:Rocks sync` can run deterministically on first boot.
+`NVIM_CONFIG_DIR` contains only repo-managed artifacts (config files and
+rendered templates). All plugin code lives under `NVIM_CACHE_DIR/rocks/` —
+native rocks in the luarocks tree, git plugins in the pack directory. The
+runtime `env.lua` wires `package.path`, `package.cpath`, and Neovim's
+`rtp`/`packpath` to these locations.
 
 ---
 
@@ -497,7 +538,7 @@ Human-facing `.PHONY` targets are intentionally few and stable:
 | `build`            | build `stage/nvim/` code image (Lua + m4 + fnl)  |
 | `stage`            | prepare staged artifacts (code + runtime + seeds) |
 | `install`          | install staged artifacts into `NVIM_CONFIG_DIR`  |
-| `sync`             | install + headless `:Rocks sync`                 |
+| `sync`             | install + sync all plugins from `rocks.toml`     |
 | `test`             | full sync into temp directories (smoke test)     |
 | `verify`           | check staged Lua for unexpanded m4 tokens        |
 | `clean`            | remove `stage/`                                  |
@@ -515,25 +556,24 @@ The system enforces the following invariants:
 1. Exactly one implementation per module path
 2. All required tools must exist
 3. No generated code appears in `nvim/`
-4. Stage contains only repo-managed artifacts (including vendored seeds)
-5. Seed plugins are vendored submodules, copied into stage during build
-6. Test and install differ only by destination directories
-7. A hermetic LuaRocks tree is always used for plugin installation
-8. All exported m4 symbols are prefixed with `NV_M4_`
-9. `rocks.toml` is the single canonical plugin manifest
+4. Stage contains only repo-managed artifacts (no plugin code)
+5. `rocks.toml` is the single authority for all plugin versions
+6. Plugin installation uses the host Lua interpreter and luarocks, not Neovim
+7. Test and install differ only by destination directories
+8. A hermetic LuaRocks tree is always used for plugin installation
+9. All exported m4 symbols are prefixed with `NV_M4_`
 
 ---
 
 ## Mental model summary
 
-| Phase   | Responsibility                             |
-| ------- | ------------------------------------------ |
-| Build   | Transform repo sources into stage          |
-| Seed    | Copy vendored plugin managers into stage   |
-| Install | Copy staged artifacts into destination     |
-| Sync    | Install plugins deterministically (network)|
-| Test    | Install + sync in temp dirs; smoke test    |
-| Runtime | Load pure Lua, no build-known probing      |
+| Phase   | Responsibility                                     |
+| ------- | -------------------------------------------------- |
+| Build   | Transform repo sources into stage                  |
+| Install | Copy staged artifacts into destination              |
+| Sync    | Bootstrap toml-edit, install all plugins (network)  |
+| Runtime | Load pure Lua; rocks.nvim manages updates           |
+| Test    | Install + sync in temp dirs; smoke test             |
 
 Complexity is intentionally moved **left** into the build so runtime behavior
 remains simple, fast, and predictable.
