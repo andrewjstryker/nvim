@@ -1,0 +1,38 @@
+-- ~/.config/nvim/lua/plugins/navigation.lua
+-- Plugins: telescope, trouble, nvim-tmux-navigation
+
+-- Telescope
+local ok_tele, telescope = pcall(require, "telescope")
+if ok_tele then
+  telescope.setup({
+    defaults = {
+      layout_strategy = "horizontal",
+      sorting_strategy = "ascending",
+      layout_config = {
+        prompt_position = "top",
+      },
+    },
+  })
+end
+
+-- Trouble (diagnostics list / quickfix replacement)
+local ok_trouble, trouble = pcall(require, "trouble")
+if ok_trouble then
+  trouble.setup()
+end
+
+-- Tmux-aware window navigation
+-- Replaces <C-h/j/k/l> with tmux-aware versions when inside tmux.
+local ok_tmux, tmux_nav = pcall(require, "nvim-tmux-navigation")
+if ok_tmux then
+  tmux_nav.setup({
+    disable_when_zoomed = true,
+  })
+
+  -- Override the basic <C-h/j/k/l> maps from keymaps.lua with tmux-aware ones
+  local map = vim.keymap.set
+  map("n", "<C-h>", tmux_nav.NvimTmuxNavigateLeft,  { desc = "Move left (tmux-aware)" })
+  map("n", "<C-j>", tmux_nav.NvimTmuxNavigateDown,  { desc = "Move down (tmux-aware)" })
+  map("n", "<C-k>", tmux_nav.NvimTmuxNavigateUp,    { desc = "Move up (tmux-aware)" })
+  map("n", "<C-l>", tmux_nav.NvimTmuxNavigateRight, { desc = "Move right (tmux-aware)" })
+end

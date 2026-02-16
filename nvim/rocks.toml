@@ -15,7 +15,8 @@
 # --- plugin managers / helpers (also seeded as submodules for first boot) ---
 "rocks.nvim"        = "2.47.4"
 "rocks-git.nvim"    = "scm"
-"rocks-config.nvim" = "scm"
+# By-passing
+#"rocks-config.nvim" = "scm"
 
 # --- search / pickers (plenary must be in the main [plugins] table) ---
 "plenary.nvim"      = "scm"

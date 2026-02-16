@@ -12,3 +12,6 @@ require("config.util")
 require("config.options")
 require("config.keymaps")
 require("config.autocmds")
+
+-- Plugin configurations (concern-based, loaded after rocks.nvim)
+require("config.plugins")
