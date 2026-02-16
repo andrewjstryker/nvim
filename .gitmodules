@@ -1,6 +1,0 @@
-[submodule "vendor/rocks.nvim"]
-	path = vendor/rocks.nvim
-	url = https://github.com/lumen-oss/rocks.nvim.git
-[submodule "vendor/rocks-git.nvim"]
-	path = vendor/rocks-git.nvim
-	url = https://github.com/lumen-oss/rocks-git.nvim.git
