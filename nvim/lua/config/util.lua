@@ -16,9 +16,9 @@ vim.api.nvim_create_user_command("ReloadConfig", function()
       package.loaded[name] = nil
     end
   end
-  dofile(vim.fn.stdpath("config") .. "/init.lua")
-  print("✓ Config reloaded")
+  local config_root = vim.env.NVIM_CONFIG_DIR or vim.fn.stdpath("config")
+  dofile(config_root .. "/init.lua")
+  print("Config reloaded")
 end, {})
 
 return M
-
