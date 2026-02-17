@@ -3,7 +3,18 @@
 
 local ok, leap = pcall(require, "leap")
 if ok then
-  leap.add_default_mappings()
+  -- Explicit mappings rather than create_default_mappings(), which may not
+  -- exist in all forks (e.g. Codeberg andyg/leap.nvim).
+  vim.keymap.set({"n", "x", "o"}, "s",  function() leap.leap({}) end,
+    { desc = "Leap forward" })
+  vim.keymap.set({"n", "x", "o"}, "S",  function() leap.leap({ backward = true }) end,
+    { desc = "Leap backward" })
+  local has_user, leap_user = pcall(require, "leap.user")
+  if has_user and leap_user.get_focusable_windows then
+    vim.keymap.set({"n", "x", "o"}, "gs", function()
+      leap.leap({ target_windows = leap_user.get_focusable_windows() })
+    end, { desc = "Leap from windows" })
+  end
 end
 
 local ok2, surround = pcall(require, "nvim-surround")

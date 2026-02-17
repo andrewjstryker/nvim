@@ -1,5 +1,9 @@
 -- ~/.config/nvim/lua/plugins/lsp.lua
--- Plugins: nvim-treesitter, nvim-lspconfig, conform.nvim
+-- Plugins: nvim-treesitter, nvim-lspconfig (config provider), conform.nvim
+--
+-- Neovim 0.12 native LSP: nvim-lspconfig provides default configs via its
+-- lsp/ directory on the runtimepath.  We customize with vim.lsp.config()
+-- and activate with vim.lsp.enable().  No require('lspconfig') needed.
 
 ---------------------------------------------------------------------------
 -- Treesitter
@@ -20,22 +24,28 @@ if ok_ts then
 end
 
 ---------------------------------------------------------------------------
--- LSP
+-- LSP: shared config for all servers
 ---------------------------------------------------------------------------
-local ok_lsp, lspconfig = pcall(require, "lspconfig")
-if ok_lsp then
-  -- Shared capabilities: advertise cmp-nvim-lsp completions to all servers
-  local capabilities = vim.lsp.protocol.make_client_capabilities()
-  local ok_cmp_lsp, cmp_lsp = pcall(require, "cmp_nvim_lsp")
-  if ok_cmp_lsp then
-    capabilities = cmp_lsp.default_capabilities(capabilities)
-  end
 
-  -- Shared on_attach: buffer-local LSP keymaps
-  local function on_attach(_, bufnr)
+-- Advertise cmp-nvim-lsp capabilities to all servers
+local capabilities = vim.lsp.protocol.make_client_capabilities()
+local ok_cmp_lsp, cmp_lsp = pcall(require, "cmp_nvim_lsp")
+if ok_cmp_lsp then
+  capabilities = cmp_lsp.default_capabilities(capabilities)
+end
+
+vim.lsp.config("*", {
+  capabilities = capabilities,
+  root_markers = { ".git" },
+})
+
+-- Buffer-local LSP keymaps (set once when any server attaches)
+vim.api.nvim_create_autocmd("LspAttach", {
+  group = vim.api.nvim_create_augroup("LspKeymaps", { clear = true }),
+  callback = function(ev)
     local map = vim.keymap.set
     local opts = function(desc)
-      return { buffer = bufnr, desc = desc }
+      return { buffer = ev.buf, desc = desc }
     end
 
     map("n", "gd",         vim.lsp.buf.definition,      opts("Go to definition"))
@@ -47,45 +57,48 @@ if ok_lsp then
     map("n", "<leader>ca", vim.lsp.buf.code_action,      opts("Code action"))
     map("n", "[d",         vim.diagnostic.goto_prev,     opts("Prev diagnostic"))
     map("n", "]d",         vim.diagnostic.goto_next,     opts("Next diagnostic"))
-  end
+  end,
+})
 
-  local servers = {
-    -- Python: install with `pip install ruff-lsp pyright`
-    pyright  = {},
-    ruff_lsp = {},
+---------------------------------------------------------------------------
+-- LSP: per-server overrides
+--
+-- nvim-lspconfig provides sensible defaults for each server (cmd,
+-- filetypes, root_markers) via its lsp/ directory.  We only need to
+-- override where our setup differs from those defaults.
+---------------------------------------------------------------------------
 
-    -- R: install with `R -e 'install.packages("languageserver")'`
-    r_language_server = {},
+-- Python: install with `pip install pyright ruff`
+-- (ruff_lsp is deprecated; ruff has a native LSP server now)
+vim.lsp.config("ruff", {
+  -- ruff handles formatting and linting; disable hover to let pyright own it
+  on_attach = function(client, _)
+    client.server_capabilities.hoverProvider = false
+  end,
+})
 
-    -- SQL: install with `npm i -g sql-language-server`
-    sqlls = {},
-
-    -- Markdown: install with `brew install marksman` or cargo
-    marksman = {},
-
-    -- Lua (for your Neovim config): install with `brew install lua-language-server`
-    lua_ls = {
-      settings = {
-        Lua = {
-          runtime    = { version = "LuaJIT" },
-          workspace  = { library = { vim.env.VIMRUNTIME } },
-          diagnostics = { globals = { "vim" } },
-          telemetry  = { enable = false },
-        },
-      },
+-- Lua: for editing this Neovim config
+vim.lsp.config("lua_ls", {
+  settings = {
+    Lua = {
+      runtime    = { version = "LuaJIT" },
+      workspace  = { library = { vim.env.VIMRUNTIME } },
+      diagnostics = { globals = { "vim" } },
+      telemetry  = { enable = false },
     },
-  }
+  },
+})
 
-  for server, config in pairs(servers) do
-    -- Only configure servers that are actually installed
-    if vim.fn.executable(lspconfig[server].document_config.default_config.cmd[1]) == 1 then
-      lspconfig[server].setup(vim.tbl_extend("force", {
-        capabilities = capabilities,
-        on_attach    = on_attach,
-      }, config))
-    end
-  end
-end
+-- Enable all servers (nvim-lspconfig supplies cmd, filetypes, root_markers)
+-- Each server auto-starts only when its filetypes are opened.
+vim.lsp.enable({
+  "pyright",
+  "ruff",
+  "r_language_server",
+  "sqlls",
+  "marksman",
+  "lua_ls",
+})
 
 ---------------------------------------------------------------------------
 -- Conform (auto-format)

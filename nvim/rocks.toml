@@ -1,22 +1,13 @@
-# rocks.toml -- canonical plugin manifest for rocks.nvim
+# rocks.toml -- plugin manifest
 #
 # Key format:
 #   - Luarocks packages:  "package-name" = "version"
 #   - Git-only plugins:   [plugins.short-name] with git = "owner/repo"
-#
-# rocks-git.nvim handles the [plugins.X] git entries via :Rocks sync.
-# rocks-config.nvim auto-loads per-plugin configs from lua/plugins/*.lua.
 
 [rocks]
-# Non-Neovim Lua rocks (leave empty unless you add pure-Lua deps)
+# Non-Neovim Lua rocks
 
 [plugins]
-
-# --- plugin managers / helpers (also seeded as submodules for first boot) ---
-"rocks.nvim"        = "2.47.4"
-"rocks-git.nvim"    = "scm"
-# By-passing
-#"rocks-config.nvim" = "scm"
 
 # --- search / pickers (plenary must be in the main [plugins] table) ---
 "plenary.nvim"      = "scm"
@@ -34,7 +25,7 @@ git = "tpope/vim-fugitive"
 
 # --- motions / editing ---
 [plugins.leap.nvim]
-git = "ggandor/leap.nvim"
+git = "https://codeberg.org/andyg/leap.nvim"
 
 [plugins.nvim-surround]
 git = "kylechui/nvim-surround"
@@ -140,25 +131,28 @@ git = "zbirenbaum/copilot.lua"
 [plugins.zen-mode.nvim]
 git = "folke/zen-mode.nvim"
 
-# --- Tmux ---
-[plugins.nvim-tmux-navigation]
-git = "alexghergh/nvim-tmux-navigation"
-
-# indent guides
-[plugins.indent-blankline.nvim]
-git = "lukas-reineke/indent-blankline.nvim"
-
 # wiki-style notes (render-markdown.nvim covers Markdown blogging better):
 [plugins.vimwiki]
 git = "vimwiki/vimwiki"
 opt = true
 
-# unicode table lookup (niche):
+# unicode table lookup
 [plugins.unicode.vim]
 git = "chrisbra/unicode.vim"
 opt = true
 
+# --- Tmux ---
+[plugins.nvim-tmux-navigation]
+git = "alexghergh/nvim-tmux-navigation"
+
+# --- commented out: enable if/when needed ---
+
+# indent guides (more useful for deeply nested JS/YAML than Python/R):
+# [plugins.indent-blankline.nvim]
+# git = "lukas-reineke/indent-blankline.nvim"
+
+
 # jq integration (occasional use):
-[plugins.nvim-jqx]
-git = "gennaro-tedesco/nvim-jqx"
-opt = true
+# [plugins.nvim-jqx]
+# git = "gennaro-tedesco/nvim-jqx"
+# opt = true
