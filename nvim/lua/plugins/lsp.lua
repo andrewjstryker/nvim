@@ -1,30 +1,12 @@
 -- ~/.config/nvim/lua/plugins/lsp.lua
--- Plugins: nvim-treesitter, nvim-lspconfig (config provider), conform.nvim
+-- Plugin: nvim-lspconfig (config provider)
 --
 -- Neovim 0.12 native LSP: nvim-lspconfig provides default configs via its
 -- lsp/ directory on the runtimepath.  We customize with vim.lsp.config()
 -- and activate with vim.lsp.enable().  No require('lspconfig') needed.
 
 ---------------------------------------------------------------------------
--- Treesitter
----------------------------------------------------------------------------
-local ok_ts, ts_configs = pcall(require, "nvim-treesitter.configs")
-if ok_ts then
-  ts_configs.setup({
-    -- Install parsers for your main languages; others on demand via :TSInstall
-    ensure_installed = {
-      "python", "r", "sql",
-      "markdown", "markdown_inline",
-      "lua", "vim", "vimdoc",
-      "bash", "dockerfile", "json", "yaml", "toml", "csv",
-    },
-    highlight = { enable = true },
-    indent    = { enable = true },
-  })
-end
-
----------------------------------------------------------------------------
--- LSP: shared config for all servers
+-- Shared config for all servers
 ---------------------------------------------------------------------------
 
 -- Advertise cmp-nvim-lsp capabilities to all servers
@@ -61,7 +43,7 @@ vim.api.nvim_create_autocmd("LspAttach", {
 })
 
 ---------------------------------------------------------------------------
--- LSP: per-server overrides
+-- Per-server overrides
 --
 -- nvim-lspconfig provides sensible defaults for each server (cmd,
 -- filetypes, root_markers) via its lsp/ directory.  We only need to
@@ -99,26 +81,3 @@ vim.lsp.enable({
   "marksman",
   "lua_ls",
 })
-
----------------------------------------------------------------------------
--- Conform (auto-format)
----------------------------------------------------------------------------
-local ok_conform, conform = pcall(require, "conform")
-if ok_conform then
-  conform.setup({
-    formatters_by_ft = {
-      python   = { "ruff_format", "black", stop_after_first = true },
-      r        = { "styler" },
-      sql      = { "sql_formatter" },
-      markdown = { "prettier" },
-      lua      = { "stylua" },
-      json     = { "prettier" },
-      yaml     = { "prettier" },
-    },
-    -- Format on save (async, with 500ms timeout)
-    format_on_save = {
-      timeout_ms = 500,
-      lsp_fallback = true,
-    },
-  })
-end

@@ -33,8 +33,18 @@ include build.mk
 include seed.mk
 
 #------------------------------------------------------------------------------#
-# Verify invariants (tools must exist)
+# Verify invariants
 #------------------------------------------------------------------------------#
+
+# NVIM_CONFIG_DIR must end with /nvim.  The build uses $(dir ...) to derive
+# XDG_CONFIG_HOME (stripping the trailing component), which only produces
+# the correct XDG base directory when the final component is "nvim".
+ifneq ($(notdir ${NVIM_CONFIG_DIR}),nvim)
+  $(error NVIM_CONFIG_DIR must end with /nvim (got: ${NVIM_CONFIG_DIR}))
+endif
+ifneq ($(notdir ${NVIM_CACHE_DIR}),nvim)
+  $(error NVIM_CACHE_DIR must end with /nvim (got: ${NVIM_CACHE_DIR}))
+endif
 
 toolset_vars := LUA NVIM LUAROCKS RSYNC GIT AWK M4
 
@@ -85,11 +95,11 @@ show:
 #------------------------------------------------------------------------------#
 
 # Build: stage code image (Lua, templates, Fennel)
-#   config_env is order-only: its PHONY nature triggers re-evaluation every
-#   run, but the cmp guard means downstream files only rebuild when the
-#   content actually changes.
+#   config_env is a normal prerequisite: its PHONY recipe runs every time,
+#   but the cmp guard only updates the file when content changes, so
+#   downstream targets rebuild only when the environment actually changed.
 .PHONY: build #> Build stage/nvim code image (Lua, templates, Fennel)
-build: check-tools ${stage_outputs} | ${config_env}
+build: check-tools ${stage_outputs} ${config_env} verify
 
 # Stage: assemble the complete staging directory (code + runtime dirs)
 .PHONY: stage #> Construct the entire staging directory
@@ -113,52 +123,82 @@ install: stage
 # Pipeline:
 #   1. stage + install  — copy config to NVIM_CONFIG_DIR
 #   2. luarocks_config  — write hermetic luarocks config.lua
-#   3. luarocks_wrapper — write wrapper script for rocks.nvim subprocess calls
-#   4. rocks-bootstrap  — install toml-edit (for rocks.toml parsing)
-#   5. rocks-sync       — parse rocks.toml with host Lua + toml-edit, then:
+#   3. rocks-bootstrap  — install toml-edit (for rocks.toml parsing)
+#   4. rocks-sync       — parse rocks.toml with host Lua + toml-edit, then:
 #                           * install native rocks via luarocks CLI
 #                           * git-clone plugins into the pack directory
 #
 # rocks.toml is the single authority for package versions.
-# All steps are idempotent.  Steps 4-5 require network access.
+# All steps are idempotent.  Steps 3-4 require network access.
 #
-# This produces the same on-disk layout that rocks.nvim and rocks-git.nvim
-# would create via interactive `:Rocks sync`.  At runtime, rocks.nvim and
-# rocks-git.nvim manage updates and additions interactively as normal.
+# Treesitter parsers are NOT installed at build time.  nvim-treesitter is
+# configured (plugins/treesitter.lua), and the autocmd wrapper in
+# autocmds.lua prompts the user to install missing parsers on first use.
 #------------------------------------------------------------------------------#
 
 .PHONY: sync #> Build, install, and sync all plugins from rocks.toml
 sync: check-tools install rocks-sync
 
 #------------------------------------------------------------------------------#
-# Test: smoke test using temporary config/cache directories
+# Test
 #
-# Runs the FULL sync pipeline in temp dirs so that m4 templates are rendered
-# with the temp paths (not the user's real paths).  If sync completes and
-# Neovim starts, the project is working.
+# Two tiers:
+#   test-fast  — build + install + verify (no network, seconds)
+#   test       — full sync + smoke (network required, ~1 min)
 #
-# NOTE: This clobbers stage/ with temp-path artifacts.  The next real
-# `make sync` will cheaply re-stage with real paths.
+# Both use temp directories so the user's real config is never touched.
+# Stage is clobbered with temp-path artifacts; the next real `make sync`
+# will cheaply re-stage with real paths.
 #------------------------------------------------------------------------------#
 
-.PHONY: test #> Smoke test: full sync into temporary directories
-test:
-	@tmp_cfg="$$(mktemp -d)"; \
-	tmp_cache="$$(mktemp -d)"; \
-	trap 'rm -rf "$$tmp_cfg" "$$tmp_cache"' EXIT; \
+# Shared helper: set up temp dirs, run a make target, then smoke-test Neovim.
+# Usage: $(call run_smoke,<make-target>)
+#
+# The temp directory structure ($tmp/config/nvim, $tmp/cache/nvim) satisfies
+# the /nvim invariant enforced above, so $(dir ...) produces correct XDG
+# base directories.
+define run_smoke
+	@tmp_root="$$(mktemp -d)"; \
+	tmp_cfg="$$tmp_root/config/nvim"; \
+	tmp_cache="$$tmp_root/cache/nvim"; \
+	mkdir -p "$$tmp_cfg" "$$tmp_cache"; \
+	trap 'rm -rf "$$tmp_root"' EXIT; \
 	echo "Smoke test using:"; \
 	echo "  NVIM_CONFIG_DIR=$$tmp_cfg"; \
 	echo "  NVIM_CACHE_DIR=$$tmp_cache"; \
-	$(MAKE) sync \
+	$(MAKE) $(1) \
 	  NVIM_CONFIG_DIR="$$tmp_cfg" \
-	  NVIM_CACHE_DIR="$$tmp_cache"
+	  NVIM_CACHE_DIR="$$tmp_cache"; \
+	echo "Verifying Neovim starts cleanly..."; \
+	smoke_err="$$tmp_root/smoke_stderr.log"; \
+	XDG_CONFIG_HOME="$$tmp_root/config" \
+	  XDG_CACHE_HOME="$$tmp_root/cache" \
+	  ${NVIM} --headless \
+	    -u "$$tmp_cfg/init.lua" \
+	    +"lua assert(package.loaded['config.env'], 'config.env not loaded')" \
+	    +qa 2>"$$smoke_err"; \
+	if grep -q "^Error\|^E[0-9]" "$$smoke_err"; then \
+	  echo "Smoke test FAILED — Neovim produced errors:"; \
+	  cat "$$smoke_err"; \
+	  exit 1; \
+	fi; \
+	echo "Smoke test passed."
+endef
+
+.PHONY: test-fast #> Quick smoke test: build + install (no network)
+test-fast:
+	$(call run_smoke,install)
+
+.PHONY: test #> Full smoke test: sync into temporary directories
+test:
+	$(call run_smoke,sync)
 
 #------------------------------------------------------------------------------#
 # Verify: check rendered artifacts for unexpanded m4 tokens
 #------------------------------------------------------------------------------#
 
 .PHONY: verify #> Verify no unexpanded NV_M4_ tokens remain in staged Lua
-verify: build
+verify: ${stage_outputs} ${config_env}
 	@echo "Checking for unexpanded m4 tokens in staged Lua files..."
 	@if grep -rn 'NV_M4_[A-Z_]*' ${stage_nvim_dir}/lua/ 2>/dev/null \
 	    | grep -v '^\s*--'; then \

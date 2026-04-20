@@ -151,12 +151,20 @@ ${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua | stage-dirs
 
 # 2. m4 templates → Lua
 #    Static m4 files (build/m4/) are normal prerequisites.
-#    config_env.m4 (stage/m4/) is order-only via ${config_env}: its .PHONY
-#    nature triggers re-evaluation every run, but the cmp guard in project.mk
-#    means its mtime only changes when the content changes.
+#    config_env.m4 (stage/m4/) is also a normal prerequisite: its recipe is
+#    .PHONY (runs every invocation), but the cmp guard only touches the file
+#    when its content changes.  Make's mtime graph then correctly rebuilds
+#    m4-rendered targets when the environment changes, and skips them when
+#    it doesn't.
 #
 #    Two -I flags: static macros in build/m4/, generated macros in stage/m4/.
-${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua.m4 ${m4_static_src} | stage-dirs ${config_env}
+#
+#    ${config_env} is a NORMAL prerequisite (not order-only).  Its recipe is
+#    .PHONY so it runs every time, but the cmp guard in project.mk only
+#    updates the file (and its mtime) when the content actually changes.
+#    This lets Make's mtime graph correctly propagate environment changes
+#    to m4-rendered targets while avoiding unnecessary rebuilds.
+${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua.m4 ${m4_static_src} ${config_env} | stage-dirs
 	"${M4}" -P -I "${m4_include_dir}" -I "${stage_m4_dir}" "$<" > "$@"
 
 # 3. Fennel → Lua

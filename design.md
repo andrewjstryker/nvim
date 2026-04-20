@@ -124,6 +124,10 @@ Examples:
 * Runtime environment differences that appear after installation (e.g.,
   user-specific PATH changes, editor running in constrained environments).
 * Graceful degradation when a non-essential dependency is missing.
+* **VIMRUNTIME** — Neovim's own runtime directory. The Neovim installation is
+  outside the scope of this build system; `env.lua` reads `vim.env.VIMRUNTIME`
+  (which Neovim always sets) rather than discovering it at build time.
+* **The rocks.nvim versioned directory** — see "NV_M4_ROCKS_RTP" section below.
 
 Runtime probing should not be used to "repair" or reinterpret the build output.
 
@@ -132,7 +136,8 @@ conditions, not for validating the build pipeline.
 
 ### Summary
 
-* **Host discovery:** yes (including Lua), with explicit constraints and overrides.
+* **Host discovery:** yes (including Lua), with explicit constraints and
+  overrides.
 * **Build-time guarantees:** no internal probing to see if the build "worked."
 * **Testing:** yes—probe hard to verify invariants and fail fast.
 * **Runtime:** probe only for what build-time cannot guarantee (optional/dynamic concerns).
@@ -151,16 +156,32 @@ repo/
 │  ├─ lua/
 │  │   ├─ config/
 │  │   │   ├─ env.lua.m4
+│  │   │   ├─ vscode.lua
+│  │   │   ├─ vscode_env.lua.m4
 │  │   │   ├─ options.lua
 │  │   │   ├─ keymaps.lua
 │  │   │   ├─ autocmds.lua
+│  │   │   ├─ plugins.lua
 │  │   │   └─ util.lua
+│  │   └─ plugins/
+│  │       ├─ completion.lua
+│  │       ├─ editing.lua
+│  │       ├─ formatting.lua
+│  │       ├─ git.lua
+│  │       ├─ lsp.lua
+│  │       ├─ navigation.lua
+│  │       ├─ sql.lua
+│  │       ├─ treesitter.lua
+│  │       ├─ ui.lua
+│  │       └─ writing.lua
 │  ├─ after/ ftplugin/ colors/ plugin/   # optional runtime dirs
 ├─ build/
 │  ├─ bin/       # vendored tools (e.g., fennel)
-│  ├─ m4/        # shared m4 macros + generated env capture
+│  ├─ m4/        # static m4 macros (constants.m4, paths.m4, common.m4)
 │  └─ scripts/   # build-time helper scripts (e.g., rocks_sync.lua)
 ├─ stage/        # build outputs (gitignored)
+│  ├─ nvim/      # assembled config image
+│  └─ m4/        # generated m4 macros (config_env.m4)
 ├─ Makefile
 ├─ environment.mk
 ├─ project.mk
@@ -179,6 +200,13 @@ implementation exists in `nvim/lua/**`:
 
 This invariant is enforced by Make at parse time by detecting duplicate staged
 targets.
+
+### Plugin configuration layout
+
+Plugin configuration uses a concern-based organization under `nvim/lua/plugins/`.
+Each file groups related plugins by concern (editing, git, treesitter, lsp,
+formatting, etc.) rather than one file per plugin. `nvim/lua/config/plugins.lua`
+is the loader that requires each concern file.
 
 ### Plugin manifest
 
@@ -221,14 +249,13 @@ There are two layers of m4 usage:
 1. **Static macros** under `build/m4/`
 
    * e.g., `NV_M4_LUA_VER` (in `constants.m4`)
-   * e.g., `NV_M4_SITE_DIR`, `NV_M4_OPT_DIR`, `NV_M4_START_DIR`
-     (in `paths.m4`)
+   * e.g., `NV_M4_SITE_DIR`, `NV_M4_OPT_DIR`, `NV_M4_START_DIR`,
+     `NV_M4_ROCKS_RTP` (in `paths.m4`)
 
-2. **Generated macros** written during the build to `build/m4/config_env.m4`
+2. **Generated macros** written during the build to `stage/m4/config_env.m4`
 
    * `NV_M4_NVIM_ROCKS_DIR`
-   * `NV_M4_LUAROCKS_CONFIG_DIR`
-   * `NV_M4_LUAROCKS_CONFIG`
+   * `NV_M4_NVIM_CONFIG_DIR`
 
 The prefix rule prevents collisions with m4 builtins, third-party macros, and
 accidental reuse across templates.
@@ -241,6 +268,13 @@ and are intended for inclusion **only from `.lua.m4` templates**, where Lua's
 own use of quotes would otherwise collide with m4 syntax. Static macro files
 (`constants.m4`, `paths.m4`, `config_env.m4`) are included *before*
 `common.m4` or use default quoting.
+
+**Template rule:** In `.lua.m4` files that include `constants.m4` and `paths.m4`
+but do **not** include `common.m4`, backtick characters must not appear anywhere
+in the Lua body (including comments). m4 interprets backticks as quote openers,
+causing "end of file in string" errors. Use double-quotes in Lua comments
+instead. If backticks are needed, include `common.m4` after the static macro
+files to switch to `-<-<`/`>->-` quoting.
 
 ### Macro expansion in paths.m4
 
@@ -259,29 +293,103 @@ m4_define(`NV_M4_START_DIR', NV_M4_SITE_DIR`/pack/rocks/start')
 This ensures that when a `.lua.m4` template expands `NV_M4_SITE_DIR`, it
 receives the fully resolved path.
 
+### NV_M4_ROCKS_RTP — the glob exception
+
+`NV_M4_ROCKS_RTP` is defined in `paths.m4` with a trailing `/*` glob:
+
+```m4
+m4_define(`NV_M4_ROCKS_RTP', NV_M4_NVIM_ROCKS_DIR`/lib/luarocks/rocks-5.1/rocks.nvim/*')
+```
+
+This is the **one symbol that does not resolve to a concrete path** at render
+time. The glob exists because the rocks.nvim versioned directory (e.g.,
+`2.47.4-1/`) does not exist when `env.lua` is rendered — `make install` runs
+before `make rocks-sync`. The version can also change at runtime via
+`:Rocks update`.
+
+The design principle is: **render what is known at build time**. The base path
+(`NV_M4_NVIM_ROCKS_DIR/lib/luarocks/rocks-5.1/rocks.nvim/`) is known and
+stamped. The version suffix is not known, so it is left as a glob for runtime
+resolution via `vim.fn.glob()`. This falls under probing policy §4
+(inherently dynamic concern).
+
 ---
 
-## Environment capture (`build/m4/config_env.m4`)
+## Environment capture (`stage/m4/config_env.m4`)
 
 Some build inputs are derived from the user's environment and cannot be tracked
 purely via Make's timestamp-based dependency graph (because the environment can
 change while file mtimes do not).
 
-To address this, `project.mk` generates `build/m4/config_env.m4` that captures
+To address this, `project.mk` generates `stage/m4/config_env.m4` that captures
 the derived install/cache paths as m4 symbols.
 
 **Idempotence rule for env capture:** the generator must not rewrite the file if
 the content is byte-identical. This is implemented by writing a temporary file
 and using `cmp` before replacing the target.
 
-**PHONY discipline:** `config_env` is marked `.PHONY` so its recipe runs every
-time (environment is not a file). Downstream targets that depend on it should
-use **order-only prerequisites** (`| ${config_env}`) to avoid unconditional
-rebuilds. The actual rebuild trigger for downstream targets is the file's mtime,
-which only changes when the content changes (thanks to the `cmp` guard).
+**Sentinel pattern:** `config_env` is marked `.PHONY` so its recipe runs every
+invocation. The recipe uses `cmp -s` to compare new content against the
+existing file, replacing it **only** when content differs. This bridges
+environment changes into Make's mtime-based dependency graph:
 
-Downstream m4 templates include this file and therefore correctly rebuild when
-the environment meaningfully changes.
+* Environment unchanged → file untouched → mtime unchanged → no rebuild
+* Environment changed → file replaced → mtime updated → dependents rebuild
+
+Downstream m4 targets (e.g., the m4 pattern rule in `build.mk`) must depend
+on `${config_env}` as a **normal prerequisite** so that mtime changes
+propagate correctly:
+
+```makefile
+# CORRECT: normal prerequisite — env changes propagate to rendered files
+${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua.m4 ${m4_static_src} ${config_env} | stage-dirs
+
+# WRONG: order-only — env changes do NOT trigger re-rendering
+${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua.m4 ${m4_static_src} | stage-dirs ${config_env}
+```
+
+The m4 command uses two `-I` flags to search both `build/m4/` (static macros)
+and `stage/m4/` (generated macros), so `m4_include('config_env.m4')` in
+`paths.m4` resolves regardless of which directory it lives in.
+
+---
+
+## Hermetic rtp and packpath
+
+`env.lua` **replaces** (not appends to) the Neovim default `runtimepath` and
+`packpath` with a minimal hermetic set. This prevents stale system plugins,
+user-global installations, and flatpak artifacts from leaking in.
+
+Two values are resolved at runtime rather than build time:
+
+* **VIMRUNTIME** — read from `vim.env.VIMRUNTIME` (Neovim installation is
+  outside scope; Neovim always provides this value)
+* **rocks_rtp** — resolved from `NV_M4_ROCKS_RTP` glob via `vim.fn.glob()`
+  (version suffix unknown at build time)
+
+All other rtp/packpath entries are fully resolved at build time via m4.
+
+**runtimepath** (5 entries):
+
+| Entry | Source | Content |
+|---|---|---|
+| `config_dir` | `NV_M4_NVIM_CONFIG_DIR` | lua/config/, lua/plugins/, ftplugin/ |
+| `rocks_rtp` | `NV_M4_ROCKS_RTP` (glob-resolved) | rocks.nvim plugin/rocks.lua |
+| `rocks_site` | `NV_M4_SITE_DIR` | git-cloned plugins runtime files |
+| `vimruntime` | `vim.env.VIMRUNTIME` (runtime) | Neovim built-in runtime (syntax, ftplugin) |
+| `config_dir/after` | derived | user after/ overrides |
+
+**packpath** (1 entry):
+
+| Entry | Source | Content |
+|---|---|---|
+| `rocks_site` | `NV_M4_SITE_DIR` | pack/rocks/{start,opt}/ |
+
+**packloadall requirement:** Neovim performs its initial pack scan early in
+startup, before `init.lua` runs. Since `env.lua` replaces `packpath` during
+`init.lua`, the initial scan found nothing in our hermetic path. `env.lua`
+must call `vim.cmd("packloadall")` after setting `packpath` to trigger a
+re-scan so that git-cloned plugins (including colorschemes) are discovered.
 
 ---
 
@@ -307,8 +415,8 @@ No network access, no third-party clones, and no runtime state appear in stage.
 
 ### Sync (build-time plugin installation)
 
-`seed.mk` handles all plugin installation at build time using the host Lua
-interpreter (not Neovim). The process has two stages:
+`seed.mk` handles all plugin installation at build time. The process has
+two stages:
 
 1. **Bootstrap**: install `toml-edit` via `luarocks` into the hermetic rocks
    tree. This is the minimal bootstrap — one rock, no transitive baggage.
@@ -324,6 +432,8 @@ interpreter (not Neovim). The process has two stages:
    * **Git plugins** (e.g., `git = "lewis6991/gitsigns.nvim"`): cloned via
      `git clone` into the Neovim pack directory at
      `${nvim_rocks_dir}/share/nvim/site/pack/rocks/{start,opt}/`.
+     The `git` field supports both GitHub shorthand (`owner/repo`) and full
+     URLs (`https://codeberg.org/user/repo`).
 
 `rocks.toml` is the **single authority** for package versions. The bootstrap
 installs only `toml-edit`; everything else — including `rocks.nvim`,
@@ -334,7 +444,19 @@ This produces the same on-disk layout that `rocks.nvim` and `rocks-git.nvim`
 would produce via interactive `:Rocks sync`, so the runtime plugin managers
 find a fully populated environment on first boot.
 
-This is the **only** step that requires network access.
+#### Treesitter parsers
+
+Treesitter parsers are **not** installed at build time. The build clones
+`nvim-treesitter` (via rocks_sync) and `plugins/treesitter.lua` configures
+highlight and indent. Parsers are installed on demand at runtime: the
+autocmd in `autocmds.lua` wraps `vim.treesitter.start()` and prompts the
+user to install missing parsers on first encounter.
+
+This avoids a C compiler requirement at build time, eliminates the only
+build phase that would invoke headless Neovim, and removes a dependency on
+nvim-treesitter's install API stability.
+
+Sync is the **only** phase that requires network access.
 
 ### Runtime plugin management
 
@@ -346,17 +468,31 @@ populates the environment; the runtime managers maintain it.
 
 ### Test (smoke)
 
-`test` performs a **complete installation and sync** using temporary
-directories:
+Two tiers:
 
-* `NVIM_CONFIG_DIR=$(mktemp -d …)`
-* `NVIM_CACHE_DIR=$(mktemp -d …)`
-* run the same build → install → sync pipeline
-* verify that Neovim starts headlessly without errors
+* **`test-fast`** — build + install into temp dirs, verify Neovim starts
+  (no network, seconds). Useful during development iteration.
+* **`test`** — full sync (network required), then verify Neovim starts.
+  This is the comprehensive check.
+
+Both tiers:
+
+* create temp directories `$tmp/config/nvim` and `$tmp/cache/nvim`
+* run the pipeline with overridden `NVIM_CONFIG_DIR` / `NVIM_CACHE_DIR`
+* launch headless Neovim with `-u init.lua`, assert `config.env` loaded,
+  and check stderr for errors
 
 This ensures that **test and install use identical logic**, differing only by
-their destination roots. The test is the smoke test — if sync completes and
-Neovim starts, the project is working.
+their destination roots.
+
+#### XDG overrides and the `/nvim` invariant
+
+The temp directory structure (`$tmp/config/nvim`, `$tmp/cache/nvim`) and the
+smoke-test XDG overrides (`XDG_CONFIG_HOME=$tmp/config`) depend on
+`NVIM_CONFIG_DIR` and `NVIM_CACHE_DIR` ending with `/nvim`.  The build uses
+`$(dir ...)` to strip the trailing component and derive the XDG base
+directory.  This invariant is **enforced at parse time** — Make errors
+immediately if either path does not end with `/nvim`.
 
 ---
 
@@ -380,18 +516,42 @@ No vendored submodules are needed. This provides:
 
 ### seed.mk responsibility
 
-`seed.mk` has three concerns:
+`seed.mk` has two concerns:
 
 1. **LuaRocks config**: write a hermetic `config.lua` that points luarocks at
    `nvim_rocks_dir`. This is an install-time concern (writes to
    `NVIM_CACHE_DIR`, not `stage/`).
 
-2. **LuaRocks wrapper**: generate a wrapper script that runs luarocks under
-   the validated Lua 5.1 / LuaJIT binary. Consumed by `rocks.nvim` at
-   runtime for subprocess calls.
-
-3. **Bootstrap + sync**: install `toml-edit`, then run the sync script to
+2. **Bootstrap + sync**: install `toml-edit`, then run the sync script to
    install all plugins from `rocks.toml`.
+
+### LuaRocks isolation
+
+The system `luarocks` command is typically a **shell wrapper** that embeds its
+own Lua invocation (e.g., `exec lua5.1 -e '...' /path/to/luarocks "$@"`).
+Running it under a different Lua via `${LUA} ${LUAROCKS_SCRIPT}` fails because
+the wrapper is a shell script, not a Lua script.
+
+Instead, `environment.mk` uses the system `luarocks` command **directly**.
+Hermeticity comes from three environment-level guards, not from controlling
+which Lua interprets luarocks:
+
+1. **`LUAROCKS_CONFIG`** — env var pointing at the hermetic `config.lua`.
+   This tells luarocks to install into `nvim_rocks_dir` instead of any
+   system location.
+
+2. **`LUA_PATH` / `LUA_CPATH`** — scoped to the hermetic rocks tree with
+   **no trailing `;;`**, intentionally excluding system-global Lua modules
+   that might be built for a different Lua version.
+
+3. **`--lua-version=5.1`** — passed to every `luarocks install` invocation
+   so the correct rock tree is targeted regardless of what Lua the luarocks
+   wrapper itself runs under.
+
+At runtime, `rocks.nvim` discovers and invokes `luarocks` on its own.  The
+hermetic `config.lua` is already in place at `NVIM_CACHE_DIR/rocks/luarocks/`
+so `rocks.nvim` finds it via standard LuaRocks config resolution.  No
+separate wrapper script is needed.
 
 ### Sync script design
 
@@ -403,6 +563,7 @@ No vendored submodules are needed. This provides:
 * partitions native rocks into pinned and unpinned groups
 * installs pinned rocks first, then unpinned, to satisfy transitive constraints
 * clones git plugins into `pack/rocks/{start,opt}/` based on the `opt` flag
+* supports full URLs (e.g., Codeberg) in addition to GitHub shorthand
 * is idempotent: luarocks skips installed packages; existing clones are skipped
 
 ### Abandoned approach: headless `:Rocks sync`
@@ -427,13 +588,14 @@ non-interactive by nature.
 ```mermaid
 flowchart TD
   subgraph Prep["Preparation (repo-managed artifacts)"]
-    E["env-capture: build/m4/config_env.m4"]
-    E -.->|"order-only"| B["build.mk: stage/nvim (copy + m4 + fennel)"]
+    E["env-capture: stage/m4/config_env.m4"]
+    E -->|"normal prereq (mtime)"| B["build.mk: stage/nvim (copy + m4 + fennel)"]
+    B --> V["verify: grep for unexpanded NV_M4_ tokens"]
   end
 
   subgraph Install["Installation (destination-specific)"]
     I["install: stage/nvim → NVIM_CONFIG_DIR"]
-    LR["luarocks_config → NVIM_CACHE_DIR/rocks"]
+    LR["luarocks_config → NVIM_CACHE_DIR/rocks/luarocks/config.lua"]
     BT["bootstrap: luarocks install toml-edit"]
     SY["rocks_sync.lua: parse rocks.toml, install all plugins"]
     I --> BT
@@ -441,15 +603,13 @@ flowchart TD
     BT --> SY
   end
 
-  B --> I
+  V --> I
 
   subgraph Test["Test (same pipeline, different roots)"]
-    T["test: override NVIM_CONFIG_DIR + NVIM_CACHE_DIR (mktemp)"]
-    T --> T2["make sync (recursive, with overridden vars)"]
-  end
-
-  subgraph Verify["Verification (standalone)"]
-    V["verify: grep for unexpanded NV_M4_ tokens"]
+    TF["test-fast: build + install (no network)"]
+    T["test: full sync (network required)"]
+    TF --> TS["nvim --headless smoke check"]
+    T --> TS
   end
 ```
 
@@ -457,14 +617,21 @@ Notes:
 
 * The test pipeline runs the **same** `make sync` target, just with overridden
   `NVIM_CONFIG_DIR` and `NVIM_CACHE_DIR`. Stage is rebuilt with temp paths so
-  m4-rendered files contain the correct roots.
+  m4-rendered files contain the correct roots.  The temp directory structure
+  is `$tmp/config/nvim` and `$tmp/cache/nvim` so that XDG overrides produce
+  correct `stdpath()` values.
 * The sync script runs under the host Lua interpreter, not Neovim. It uses
   `toml-edit` (installed during bootstrap) to parse `rocks.toml` and shells
   out to `luarocks` and `git` for each entry.
 * The `luarocks_config` target writes to `NVIM_CACHE_DIR` (install-time), not `stage/`.
-* Env capture is the only place we use content comparison to avoid spurious
-  timestamp churn. Downstream targets use order-only prerequisites on it.
-* `verify` is standalone — run it manually or in CI to check for unexpanded tokens.
+  Build-time luarocks hermeticity comes from environment variables
+  (`LUAROCKS_CONFIG`, `LUA_PATH`, `LUA_CPATH`) and the `--lua-version=5.1`
+  flag, not from controlling which Lua interprets the luarocks command.
+* Env capture uses content comparison (`cmp -s`) to avoid spurious timestamp
+  churn. Downstream m4 targets use `config_env` as a **normal prerequisite**
+  so that environment changes propagate through Make's mtime graph.
+* `verify` runs as part of `build` — every build, install, sync, and test
+  automatically checks for unexpanded m4 tokens. It can also be run standalone.
 
 ---
 
@@ -475,30 +642,45 @@ NVIM_CONFIG_DIR/
 ├─ init.lua
 ├─ rocks.toml
 ├─ lua/
-│  └─ config/
-│     ├─ env.lua         (rendered from env.lua.m4)
-│     ├─ options.lua
-│     ├─ keymaps.lua
-│     ├─ autocmds.lua
-│     └─ util.lua
+│  ├─ config/
+│  │  ├─ env.lua         (rendered from env.lua.m4)
+│  │  ├─ vscode.lua
+│  │  ├─ vscode_env.lua  (rendered from vscode_env.lua.m4)
+│  │  ├─ options.lua
+│  │  ├─ keymaps.lua
+│  │  ├─ autocmds.lua
+│  │  ├─ plugins.lua
+│  │  └─ util.lua
+│  └─ plugins/
+│     ├─ completion.lua
+│     ├─ editing.lua
+│     ├─ formatting.lua
+│     ├─ git.lua
+│     ├─ lsp.lua
+│     ├─ navigation.lua
+│     ├─ sql.lua
+│     ├─ treesitter.lua
+│     ├─ ui.lua
+│     └─ writing.lua
 ├─ after/ plugin/ ...
 
 NVIM_CACHE_DIR/rocks/
 ├─ luarocks/
 │  └─ config.lua         (hermetic luarocks config)
-├─ bin/
-│  └─ luarocks-wrapper   (runs luarocks under validated Lua 5.1)
+├─ lib/luarocks/rocks-5.1/
+│  └─ rocks.nvim/
+│     └─ <version>/      (rocks.nvim runtime: plugin/rocks.lua)
 ├─ lib/lua/5.1/          (native C modules: toml_edit.so, fzy, etc.)
 ├─ share/lua/5.1/        (pure Lua modules: rocks.nvim, nio, etc.)
 └─ share/nvim/site/
    └─ pack/rocks/
       ├─ start/           (git plugins loaded at startup)
+      │  ├─ solarized.nvim/
       │  ├─ gitsigns.nvim/
       │  ├─ which-key.nvim/
       │  └─ ...
       └─ opt/             (git plugins loaded on demand)
          ├─ Nvim-R/
-         ├─ vimwiki/
          └─ ...
 ```
 
@@ -516,7 +698,7 @@ For normal build steps (copying files, rendering templates, compiling Fennel),
 the system relies on **Make's standard dependency and timestamp semantics**.
 
 Explicit content comparison (`cmp`) is used **only** for environment capture
-(`build/m4/config_env.m4`) because environment changes cannot be modeled by
+(`stage/m4/config_env.m4`) because environment changes cannot be modeled by
 file mtimes alone.
 
 This ensures:
@@ -539,8 +721,9 @@ Human-facing `.PHONY` targets are intentionally few and stable:
 | `stage`            | prepare staged artifacts (code + runtime + seeds) |
 | `install`          | install staged artifacts into `NVIM_CONFIG_DIR`  |
 | `sync`             | install + sync all plugins from `rocks.toml`     |
-| `test`             | full sync into temp directories (smoke test)     |
-| `verify`           | check staged Lua for unexpanded m4 tokens        |
+| `test-fast`        | quick smoke test: build + install (no network)   |
+| `test`             | full smoke test: sync + verify Neovim starts     |
+| `verify`           | check staged Lua for unexpanded m4 tokens (runs as part of `build`) |
 | `clean`            | remove `stage/`                                  |
 | `uninstall`        | remove installed config (requires `FORCE=1`)     |
 | `uninstall-cache`  | remove config + hermetic rocks cache             |
@@ -558,7 +741,8 @@ The system enforces the following invariants:
 3. No generated code appears in `nvim/`
 4. Stage contains only repo-managed artifacts (no plugin code)
 5. `rocks.toml` is the single authority for all plugin versions
-6. Plugin installation uses the host Lua interpreter and luarocks, not Neovim
+6. Plugin installation uses the host Lua interpreter, luarocks, and git
+   (not Neovim). No build phase invokes Neovim.
 7. Test and install differ only by destination directories
 8. A hermetic LuaRocks tree is always used for plugin installation
 9. All exported m4 symbols are prefixed with `NV_M4_`
@@ -571,9 +755,9 @@ The system enforces the following invariants:
 | ------- | -------------------------------------------------- |
 | Build   | Transform repo sources into stage                  |
 | Install | Copy staged artifacts into destination              |
-| Sync    | Bootstrap toml-edit, install all plugins (network)  |
-| Runtime | Load pure Lua; rocks.nvim manages updates           |
-| Test    | Install + sync in temp dirs; smoke test             |
+| Sync    | Bootstrap toml-edit, install plugins (net)            |
+| Runtime | Load pure Lua; rocks.nvim manages updates; parsers on demand |
+| Test    | Install + sync in temp dirs; smoke test (fast / full) |
 
 Complexity is intentionally moved **left** into the build so runtime behavior
 remains simple, fast, and predictable.

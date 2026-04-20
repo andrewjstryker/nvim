@@ -15,7 +15,8 @@ m4_define(`NV_M4_SITE_DIR',  NV_M4_NVIM_ROCKS_DIR`/share/nvim/site')
 m4_define(`NV_M4_OPT_DIR',   NV_M4_SITE_DIR`/pack/rocks/opt')
 m4_define(`NV_M4_START_DIR', NV_M4_SITE_DIR`/pack/rocks/start')
 m4_dnl
-m4_dnl rocks.nvim runtime path inside the luarocks tree.
-m4_dnl The trailing /* glob picks up the versioned directory (e.g. 2.45.1-1)
-m4_dnl which contains plugin/rocks.lua (registers :Rocks command).
+m4_dnl rocks.nvim versioned directory — glob because the version suffix
+m4_dnl (e.g., 2.47.4-1/) is unknown at render time.  Resolved at runtime
+m4_dnl via vim.fn.glob().  See "NV_M4_ROCKS_RTP" in design.md.
 m4_define(`NV_M4_ROCKS_RTP', NV_M4_NVIM_ROCKS_DIR`/lib/luarocks/rocks-5.1/rocks.nvim/*')
+

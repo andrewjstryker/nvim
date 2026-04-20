@@ -223,9 +223,16 @@ if #git_plugins > 0 then
       log("  [skip] " .. plug.name .. " (already cloned)")
     else
       log("  [clone] " .. plug.name .. " <- " .. plug.repo)
-      local url = "https://github.com/" .. plug.repo .. ".git"
+      -- If the repo value is already a full URL, use it directly.
+      -- Otherwise treat it as a GitHub owner/repo shorthand.
+      local url
+      if plug.repo:match("^https?://") then
+        url = plug.repo
+      else
+        url = "https://github.com/" .. plug.repo .. ".git"
+      end
       local cmd = git_cmd
-        .. " clone --filter=blob:none --depth=1"
+        .. " clone --depth=1"
         .. " " .. url
         .. " " .. dest
       if not run(cmd) then

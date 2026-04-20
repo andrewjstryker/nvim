@@ -54,13 +54,14 @@ endef
 #------------------------------------------------------------------------------#
 
 NVIM      ?= $(shell command -v nvim)
+
 RSYNC     ?= $(shell command -v rsync)
 GIT       ?= $(shell command -v git)
 AWK       ?= $(shell command -v awk)
 M4        ?= $(shell command -v m4)
 
-# luarocks script path (resolved after LUA discovery below)
-LUAROCKS_SCRIPT ?= $(shell command -v luarocks)
+# luarocks command (used directly — see "LuaRocks isolation" in design.md)
+LUAROCKS ?= $(shell command -v luarocks)
 
 #------------------------------------------------------------------------------#
 #
@@ -111,23 +112,6 @@ LUA := $(shell \
   echo "$$out" | grep -Eq 'LuaJIT|Lua 5\.1' && echo "$$cmd" || echo "" \
 )
 endif
-
-#------------------------------------------------------------------------------#
-#
-# LuaRocks: run under the validated Lua 5.1 / LuaJIT
-#
-# The system `luarocks` CLI is a Lua script.  If the system default Lua is
-# 5.4+ (which makes for-loop variables const), luarocks' own code may fail
-# with "attempt to assign to const variable" errors.
-#
-# We avoid this by invoking the luarocks script explicitly under our
-# validated LUA binary:  $(LUA) $(LUAROCKS_SCRIPT)
-#
-# LUAROCKS is the ready-to-use command; seed.mk calls it directly.
-#
-#------------------------------------------------------------------------------#
-
-LUAROCKS := ${LUA} ${LUAROCKS_SCRIPT}
 
 #------------------------------------------------------------------------------#
 #

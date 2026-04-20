@@ -1,11 +1,9 @@
 -- ~/.config/nvim/lua/config/options.lua
 
--- Truecolor + UI niceties
-vim.opt.termguicolors = true
-vim.opt.cursorline = true
-vim.opt.number = true
-vim.opt.relativenumber = false
-vim.opt.signcolumn = "yes"
+-- Disable netrw (file explorer) — Neovim 0.12 loads it as an optional pack
+-- plugin, which fails under our hermetic packpath.  Use Telescope instead.
+vim.g.loaded_netrwPlugin = 1
+vim.g.loaded_netrw = 1
 
 -- Files & history
 vim.opt.undofile = true
@@ -35,9 +33,4 @@ if vim.fn.filereadable("/usr/share/dict/words") == 1 then
   vim.opt.dictionary:append("/usr/share/dict/words")
 end
 
--- Colorscheme
--- Set background BEFORE loading the colorscheme so solarized picks the
--- correct variant.  Change to "light" if you use a light terminal palette.
-vim.opt.background = "dark"
-local ok = pcall(vim.cmd.colorscheme, "solarized")
-if not ok then pcall(vim.cmd.colorscheme, "default") end
+-- Colorscheme is set in plugins/ui.lua (after pack paths are resolved)

@@ -1,11 +1,14 @@
-# rocks.toml -- plugin manifest
+# rocks.toml -- canonical plugin manifest
 #
 # Key format:
 #   - Luarocks packages:  "package-name" = "version"
 #   - Git-only plugins:   [plugins.short-name] with git = "owner/repo"
+#
+# The build system (rocks_sync.lua) reads this file directly via toml-edit.
+# Plugin installation is handled entirely by `make sync`.
 
 [rocks]
-# Non-Neovim Lua rocks
+# Non-Neovim Lua rocks (leave empty unless you add pure-Lua deps)
 
 [plugins]
 
@@ -78,8 +81,10 @@ git = "kristijanhusak/vim-dadbod-ui"
 git = "kristijanhusak/vim-dadbod-completion"
 
 # --- Markdown rendering (in-buffer headings, tables, code blocks) ---
+# opt=true: loaded via autocmd only when treesitter markdown parser exists
 [plugins.render-markdown.nvim]
 git = "MeanderingProgrammer/render-markdown.nvim"
+opt = true
 
 # --- languages / syntax (optional, loaded on demand) ---
 [plugins.Nvim-R]
@@ -103,8 +108,8 @@ git = "vim-pandoc/vim-pandoc-syntax"
 opt = true
 
 # --- Theme / UI ---
-[plugins.solarized.nvim]
-git = "shaunsingh/solarized.nvim"
+[plugins.vim-solarized8]
+git = "andrewjstryker/vim-solarized8"
 
 [plugins.nvim-web-devicons]
 git = "nvim-tree/nvim-web-devicons"
@@ -131,19 +136,19 @@ git = "zbirenbaum/copilot.lua"
 [plugins.zen-mode.nvim]
 git = "folke/zen-mode.nvim"
 
+# --- Tmux ---
+[plugins.nvim-tmux-navigation]
+git = "alexghergh/nvim-tmux-navigation"
+
 # wiki-style notes (render-markdown.nvim covers Markdown blogging better):
 [plugins.vimwiki]
 git = "vimwiki/vimwiki"
 opt = true
 
-# unicode table lookup
+# unicode table lookup (niche):
 [plugins.unicode.vim]
 git = "chrisbra/unicode.vim"
 opt = true
-
-# --- Tmux ---
-[plugins.nvim-tmux-navigation]
-git = "alexghergh/nvim-tmux-navigation"
 
 # --- commented out: enable if/when needed ---
 

@@ -19,17 +19,5 @@ if ok_zen then
 end
 
 -- Render-markdown (in-buffer rendering of headings, tables, code blocks)
--- Requires the markdown and markdown_inline treesitter parsers.
--- Run :TSInstall markdown markdown_inline if you see parser errors.
-local has_parser = pcall(vim.treesitter.language.inspect, "markdown")
-if has_parser then
-  local ok_rm, render_md = pcall(require, "render-markdown")
-  if ok_rm then
-    render_md.setup({
-      file_types = { "markdown" },
-      heading = {
-        enabled = true,
-      },
-    })
-  end
-end
+-- This plugin is opt=true and loaded via autocmds.lua only when the
+-- treesitter markdown parser is available.  Setup is handled there.
