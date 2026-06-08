@@ -20,6 +20,9 @@ map("t", "<C-l>", [[<C-\><C-n><C-w>l]], { silent = true, desc = "Move right from
 -- Clear search highlight
 map("n", "<Esc>", "<cmd>nohlsearch<cr>", { silent = true, desc = "Clear search highlight" })
 
+-- Oil (file browser: edit the filesystem as a buffer)
+map("n", "-", "<cmd>Oil<cr>", { desc = "Open parent directory (oil)" })
+
 -- Telescope
 map("n", "<leader>ff", "<cmd>Telescope find_files<cr>",  { desc = "Find files" })
 map("n", "<leader>fg", "<cmd>Telescope live_grep<cr>",   { desc = "Live grep" })
