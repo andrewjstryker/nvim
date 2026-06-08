@@ -76,6 +76,17 @@ local function clone_exists(path)
   return false
 end
 
+--- Read the current branch of the clone at `path`.  Returns the branch name,
+--- or nil if it cannot be determined (detached HEAD, not a git repo, etc.).
+local function current_branch(path)
+  local fh = io.popen("git -C '" .. path .. "' rev-parse --abbrev-ref HEAD 2>/dev/null")
+  if not fh then return nil end
+  local result = fh:read("*l")
+  fh:close()
+  if result == nil or result == "" or result == "HEAD" then return nil end
+  return result
+end
+
 -- ---------------------------------------------------------------------------
 -- Parse rocks.toml
 -- ---------------------------------------------------------------------------
@@ -140,9 +151,10 @@ local function collect(tbl_node, prefix)
         -- Git plugin spec (has a "git" key)
         local kind = spec.opt and "opt" or "start"
         table.insert(git_plugins, {
-          name = full_name,
-          repo = spec.git,
-          kind = kind,
+          name   = full_name,
+          repo   = spec.git,
+          kind   = kind,
+          branch = spec.branch,  -- optional: pin to a specific branch
         })
       else
         -- Intermediate dotted-key table — descend
@@ -220,9 +232,35 @@ if #git_plugins > 0 then
   for _, plug in ipairs(git_plugins) do
     local dest = site_pack .. "/" .. plug.kind .. "/" .. plug.name
     if clone_exists(dest) then
-      log("  [skip] " .. plug.name .. " (already cloned)")
+      -- If the spec pins a branch and the clone is on a different branch,
+      -- switch (fetch + checkout).  Without this, a plugin whose branch
+      -- changed in rocks.toml would silently stay on the old branch.
+      if plug.branch and current_branch(dest) ~= plug.branch then
+        log("  [switch] " .. plug.name
+          .. " (" .. tostring(current_branch(dest))
+          .. " -> " .. plug.branch .. ")")
+        -- `branch:branch` refspec fetches origin's branch AND creates a
+        -- local branch in one step.  Plain `fetch origin <branch>` only
+        -- updates FETCH_HEAD, leaving no local branch to check out under
+        -- a shallow clone.
+        local fetch = git_cmd .. " -C " .. dest
+          .. " fetch --depth=1 origin "
+          .. plug.branch .. ":" .. plug.branch
+        local checkout = git_cmd .. " -C " .. dest
+          .. " checkout " .. plug.branch
+        if not (run(fetch) and run(checkout)) then
+          local msg = "Failed to switch branch: " .. plug.name
+            .. " (-> " .. plug.branch .. ")"
+          log("  ERROR: " .. msg)
+          table.insert(errors, msg)
+        end
+      else
+        log("  [skip] " .. plug.name .. " (already cloned"
+          .. (plug.branch and (", on " .. plug.branch) or "") .. ")")
+      end
     else
-      log("  [clone] " .. plug.name .. " <- " .. plug.repo)
+      log("  [clone] " .. plug.name .. " <- " .. plug.repo
+        .. (plug.branch and (" [branch=" .. plug.branch .. "]") or ""))
       -- If the repo value is already a full URL, use it directly.
       -- Otherwise treat it as a GitHub owner/repo shorthand.
       local url
@@ -231,8 +269,10 @@ if #git_plugins > 0 then
       else
         url = "https://github.com/" .. plug.repo .. ".git"
       end
+      local branch_flag = plug.branch and (" --branch " .. plug.branch) or ""
       local cmd = git_cmd
         .. " clone --depth=1"
+        .. branch_flag
         .. " " .. url
         .. " " .. dest
       if not run(cmd) then

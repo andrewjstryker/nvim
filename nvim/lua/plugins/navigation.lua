@@ -1,5 +1,15 @@
 -- ~/.config/nvim/lua/plugins/navigation.lua
--- Plugins: telescope, trouble, nvim-tmux-navigation
+-- Plugins: telescope, trouble, nvim-tmux-navigation, oil
+
+-- Oil (edit the filesystem as a buffer).  Opens with `-` from any buffer
+-- (vim.g.oil convention) to navigate to the parent directory.
+local ok_oil, oil = pcall(require, "oil")
+if ok_oil then
+  oil.setup({
+    default_file_explorer = true,
+    view_options = { show_hidden = true },
+  })
+end
 
 -- Telescope
 local ok_tele, telescope = pcall(require, "telescope")

@@ -117,13 +117,21 @@ git = "nvim-tree/nvim-web-devicons"
 [plugins.lualine.nvim]
 git = "nvim-lualine/lualine.nvim"
 
+# --- file browser (edit-the-filesystem-as-a-buffer) ---
+[plugins.oil.nvim]
+git = "stevearc/oil.nvim"
+
 # --- search / pickers ---
 [plugins.telescope.nvim]
 git = "nvim-telescope/telescope.nvim"
 
 # --- Treesitter & LSP ---
+# nvim-treesitter's default branch (`main`) is the v1.0 rewrite with a
+# completely different API (no nvim-treesitter.configs, no :TSInstall).
+# Our config uses the legacy stable API on `master`.
 [plugins.nvim-treesitter]
 git = "nvim-treesitter/nvim-treesitter"
+branch = "master"
 
 [plugins.nvim-lspconfig]
 git = "neovim/nvim-lspconfig"
