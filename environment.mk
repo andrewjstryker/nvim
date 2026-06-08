@@ -63,6 +63,39 @@ M4        ?= $(shell command -v m4)
 # luarocks command (used directly — see "LuaRocks isolation" in design.md)
 LUAROCKS ?= $(shell command -v luarocks)
 
+# Optional formatter binaries (conform.nvim dispatches to whatever is on PATH
+# at build time).  Empty → the formatter is absent; project.mk omits the
+# corresponding m4 define and the generated formatting.lua drops any filetype
+# mapping that depends on it.  Install → re-run `make sync` to re-probe.
+#
+# Each variable holds the absolute path of the command conform should invoke.
+# For standalone formatters, that is the formatter binary itself.  For
+# library-style formatters (e.g. R's styler package, invoked via R), it is
+# the hosting runtime's path — see STYLER below.
+#
+# See FORMATTERS.md for install recipes.
+PRETTIER      ?= $(shell command -v prettier)
+STYLUA        ?= $(shell command -v stylua)
+RUFF          ?= $(shell command -v ruff)
+BLACK         ?= $(shell command -v black)
+SQL_FORMATTER ?= $(shell command -v sql_formatter)
+
+# styler is an R package, not a standalone CLI.  conform's built-in styler
+# formatter invokes R with `-s -e 'styler::style_file(...)'`, so we detect
+# "styler is available" by verifying R is on PATH AND the styler package is
+# installed.  When both hold, stamp the absolute R path; otherwise empty.
+#
+# Wrapped in ifndef + := so the R probe (with ~200 ms startup) runs at most
+# once per make invocation instead of on every ${STYLER} expansion.
+ifndef STYLER
+STYLER := $(shell \
+  if command -v R >/dev/null 2>&1 && \
+     R -s -e 'if (!requireNamespace("styler", quietly=TRUE)) quit(status=1)' \
+       >/dev/null 2>&1; then \
+    command -v R; \
+  fi)
+endif
+
 #------------------------------------------------------------------------------#
 #
 # Lua discovery in two stages
@@ -127,6 +160,12 @@ define toolset_summary
   GIT......................... ${GIT}
   AWK......................... ${AWK}
   M4.......................... ${M4}
+  PRETTIER.................... ${PRETTIER}
+  STYLUA...................... ${STYLUA}
+  RUFF........................ ${RUFF}
+  BLACK....................... ${BLACK}
+  STYLER...................... ${STYLER}
+  SQL_FORMATTER............... ${SQL_FORMATTER}
 endef
 
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#

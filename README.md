@@ -24,6 +24,14 @@ If all required tools are present,
 | `rsync`      | atomic install and stage copy           |
 | `awk`        | minor tooling                           |
 
+### Optional: formatters
+
+Formatters (`prettier`, `stylua`, `ruff`, `black`, `sql_formatter`, `styler`)
+are optional.  Whichever are present on PATH at `make sync` time are wired
+into conform.nvim; filetypes with no formatter installed fall through to
+LSP formatting.  See [`FORMATTERS.md`](./FORMATTERS.md) for install recipes
+and verification steps.
+
 ### Install
 
 ```bash
@@ -86,6 +94,25 @@ make uninstall FORCE=1
 ```bash
 make uninstall-cache FORCE=1
 ```
+
+---
+
+## Troubleshooting
+
+### Strange `require()` / module-loading errors
+
+Neovim's byte-compiled Lua cache lives outside the hermetic tree at
+`~/.cache/nvim/luac/`.  Stale entries from a prior Neovim build can cause
+modules to load with unexpected return values — for example, a `require()`
+returning `true` instead of a table, leading to "attempt to index a boolean
+value" errors deep inside an unrelated plugin.  If you see this kind of
+error after upgrading Neovim or moving between configurations:
+
+```bash
+rm -rf ~/.cache/nvim/luac
+```
+
+then restart Neovim.
 
 ---
 
