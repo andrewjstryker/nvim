@@ -137,8 +137,15 @@ branch = "master"
 git = "neovim/nvim-lspconfig"
 
 # --- AI completion ---
+# Pinned to the v3.0.0 tag. Uses server.type = "binary" (standalone
+# copilot-language-server, no host Node.js) — configured in
+# lua/plugins/completion.lua. Pin so a future sync can't silently swap the
+# server backend or plugin API. NOTE: `branch` is how rocks_sync.lua pins a
+# ref — its `git clone --branch` accepts tags, so this checks out the v3.0.0
+# tag (not a branch).
 [plugins.copilot.lua]
 git = "zbirenbaum/copilot.lua"
+branch = "v3.0.0"
 
 # --- Writing / focus ---
 [plugins.zen-mode.nvim]

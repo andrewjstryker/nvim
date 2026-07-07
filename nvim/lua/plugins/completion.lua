@@ -5,6 +5,7 @@
 local ok_copilot, copilot = pcall(require, "copilot")
 if ok_copilot then
   copilot.setup({
+    server     = { type = "binary" }, -- use standalone copilot-language-server; no host Node.js
     suggestion = { enabled = false },  -- disable inline ghost text; use cmp instead
     panel      = { enabled = false },
   })
