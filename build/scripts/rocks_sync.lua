@@ -76,15 +76,49 @@ local function clone_exists(path)
   return false
 end
 
---- Read the current branch of the clone at `path`.  Returns the branch name,
---- or nil if it cannot be determined (detached HEAD, not a git repo, etc.).
-local function current_branch(path)
-  local fh = io.popen("git -C '" .. path .. "' rev-parse --abbrev-ref HEAD 2>/dev/null")
+--- Run a git query in the clone at `path` and return the first line of
+--- stdout (trimmed), or nil.  stderr is suppressed so an ambiguous ref
+--- (a tag and a like-named branch both present) does not leak a warning.
+local function git_line(path, args)
+  local fh = io.popen("git -C '" .. path .. "' " .. args .. " 2>/dev/null")
   if not fh then return nil end
   local result = fh:read("*l")
   fh:close()
-  if result == nil or result == "" or result == "HEAD" then return nil end
+  if result == nil or result == "" then return nil end
   return result
+end
+
+--- True if `full_ref` (a fully-qualified ref, e.g. "refs/tags/v3.0.0")
+--- exists in the clone at `path`.
+local function has_ref(path, full_ref)
+  return git_line(path,
+    "rev-parse --verify --quiet '" .. full_ref .. "'") ~= nil
+end
+
+--- Resolve `ref` (a branch, tag, or SHA) to a commit SHA in the clone at
+--- `path`, or nil.  Fully-qualified candidates are tried first — tag, then
+--- local branch, then remote-tracking — so a pinned tag resolves cleanly
+--- even while a stray like-named local branch still exists, and no bare,
+--- ambiguity-prone name is used unless nothing else matches.
+local function resolve_ref(path, ref)
+  local candidates = {
+    "refs/tags/" .. ref,
+    "refs/heads/" .. ref,
+    "refs/remotes/origin/" .. ref,
+    ref,
+  }
+  for _, r in ipairs(candidates) do
+    local sha = git_line(path,
+      "rev-parse --verify --quiet '" .. r .. "^{commit}'")
+    if sha then return sha end
+  end
+  return nil
+end
+
+--- True if the clone's HEAD (detached or not) is already at `ref`'s commit.
+local function at_ref(path, ref)
+  local head = git_line(path, "rev-parse --verify --quiet 'HEAD^{commit}'")
+  return head ~= nil and head == resolve_ref(path, ref)
 end
 
 -- ---------------------------------------------------------------------------
@@ -232,31 +266,46 @@ if #git_plugins > 0 then
   for _, plug in ipairs(git_plugins) do
     local dest = site_pack .. "/" .. plug.kind .. "/" .. plug.name
     if clone_exists(dest) then
-      -- If the spec pins a branch and the clone is on a different branch,
-      -- switch (fetch + checkout).  Without this, a plugin whose branch
-      -- changed in rocks.toml would silently stay on the old branch.
-      if plug.branch and current_branch(dest) ~= plug.branch then
-        log("  [switch] " .. plug.name
-          .. " (" .. tostring(current_branch(dest))
-          .. " -> " .. plug.branch .. ")")
-        -- `branch:branch` refspec fetches origin's branch AND creates a
-        -- local branch in one step.  Plain `fetch origin <branch>` only
-        -- updates FETCH_HEAD, leaving no local branch to check out under
-        -- a shallow clone.
-        local fetch = git_cmd .. " -C " .. dest
-          .. " fetch --depth=1 origin "
-          .. plug.branch .. ":" .. plug.branch
-        local checkout = git_cmd .. " -C " .. dest
-          .. " checkout " .. plug.branch
-        if not (run(fetch) and run(checkout)) then
-          local msg = "Failed to switch branch: " .. plug.name
-            .. " (-> " .. plug.branch .. ")"
-          log("  ERROR: " .. msg)
-          table.insert(errors, msg)
+      -- A pinned ref (`branch`) may name a branch OR a tag.  We treat it as
+      -- an opaque ref, check it out in DETACHED HEAD, and consider the clone
+      -- in-sync when HEAD's commit matches the ref's commit.  We never create
+      -- a local branch named after the ref: a local branch sharing a tag's
+      -- name (e.g. the `v3.0.0` tag copilot.lua pins) makes every `git
+      -- <ref>` lookup ambiguous, and a subsequent `fetch <ref>:<ref>` fails
+      -- with "Refusing to fetch into current branch".
+      if plug.branch then
+        -- Heal a pre-existing tag/branch name collision left by older sync
+        -- runs: when both refs/tags/<ref> and refs/heads/<ref> exist, detach
+        -- and delete the stray branch so the tag becomes unambiguous again.
+        if has_ref(dest, "refs/tags/" .. plug.branch)
+           and has_ref(dest, "refs/heads/" .. plug.branch) then
+          run(git_cmd .. " -C " .. dest .. " checkout --detach --quiet HEAD")
+          run(git_cmd .. " -C " .. dest .. " branch -D " .. plug.branch
+            .. " >/dev/null 2>&1")
+        end
+
+        if at_ref(dest, plug.branch) then
+          log("  [skip] " .. plug.name
+            .. " (already at " .. plug.branch .. ")")
+        else
+          log("  [checkout] " .. plug.name .. " (-> " .. plug.branch .. ")")
+          -- Fetch the ref into FETCH_HEAD and check it out detached.  This
+          -- works uniformly for branches and tags and leaves no local branch
+          -- to collide with a same-named tag.  The fetch also updates the
+          -- remote-tracking ref / tag, so the next sync resolves it and skips.
+          local fetch = git_cmd .. " -C " .. dest
+            .. " fetch --depth=1 origin " .. plug.branch
+          local checkout = git_cmd .. " -C " .. dest
+            .. " checkout --detach --quiet FETCH_HEAD"
+          if not (run(fetch) and run(checkout)) then
+            local msg = "Failed to check out ref: " .. plug.name
+              .. " (-> " .. plug.branch .. ")"
+            log("  ERROR: " .. msg)
+            table.insert(errors, msg)
+          end
         end
       else
-        log("  [skip] " .. plug.name .. " (already cloned"
-          .. (plug.branch and (", on " .. plug.branch) or "") .. ")")
+        log("  [skip] " .. plug.name .. " (already cloned)")
       end
     else
       log("  [clone] " .. plug.name .. " <- " .. plug.repo
