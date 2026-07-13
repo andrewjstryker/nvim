@@ -131,9 +131,15 @@ install: stage
 # rocks.toml is the single authority for package versions.
 # All steps are idempotent.  Steps 3-4 require network access.
 #
-# Treesitter parsers are NOT installed at build time.  nvim-treesitter is
-# configured (plugins/treesitter.lua), and the autocmd wrapper in
-# autocmds.lua prompts the user to install missing parsers on first use.
+# Treesitter parsers are NOT installed at build time.  Parsers bundled with
+# Neovim are provided by the nvim install itself; extra languages install on
+# first use via nvim-treesitter's auto_install (plugins/treesitter.lua).
+#
+# The smoke tests below check both paths, with deliberately different severity:
+#   * ts_shipped  — missing *bundled* parsers is expected content the install
+#                   failed to provide: a loud WARNING, never a build failure.
+#   * ts_install  — a broken *install capability* makes every missing parser
+#                   unrecoverable: a hard ERROR that fails the build.
 #------------------------------------------------------------------------------#
 
 .PHONY: sync #> Build, install, and sync all plugins from rocks.toml
@@ -152,7 +158,11 @@ sync: check-tools install rocks-sync
 #------------------------------------------------------------------------------#
 
 # Shared helper: set up temp dirs, run a make target, then smoke-test Neovim.
-# Usage: $(call run_smoke,<make-target>)
+# Usage: $(call run_smoke,<make-target>[,<treesitter test scripts>])
+#
+# The optional second argument is a space-separated list of Lua test scripts
+# (see test/) run headless under the freshly installed config; each must exit
+# non-zero on failure.  Used to verify treesitter parsers work post-install.
 #
 # The temp directory structure ($tmp/config/nvim, $tmp/cache/nvim) satisfies
 # the /nvim invariant enforced above, so $(dir ...) produces correct XDG
@@ -182,16 +192,26 @@ define run_smoke
 	  cat "$$smoke_err"; \
 	  exit 1; \
 	fi; \
-	echo "Smoke test passed."
+	echo "Smoke test passed."; \
+	for tscript in $(2); do \
+	  echo "Treesitter test: $$tscript"; \
+	  XDG_CONFIG_HOME="$$tmp_root/config" \
+	    XDG_CACHE_HOME="$$tmp_root/cache" \
+	    ${NVIM} --headless \
+	      -u "$$tmp_cfg/init.lua" \
+	      -c "luafile $$tscript" \
+	      -c "qa" \
+	    || { echo "Treesitter test FAILED: $$tscript"; exit 1; }; \
+	done
 endef
 
-.PHONY: test-fast #> Quick smoke test: build + install (no network)
+.PHONY: test-fast #> Quick smoke test: build + install; warns on missing bundled parsers (no network)
 test-fast:
-	$(call run_smoke,install)
+	$(call run_smoke,install,$(abspath test/ts_shipped.lua))
 
-.PHONY: test #> Full smoke test: sync into temporary directories
+.PHONY: test #> Full smoke test: sync; errors if parser install is broken (network)
 test:
-	$(call run_smoke,sync)
+	$(call run_smoke,sync,$(abspath test/ts_shipped.lua) $(abspath test/ts_install.lua))
 
 #------------------------------------------------------------------------------#
 # Verify: check rendered artifacts for unexpanded m4 tokens
