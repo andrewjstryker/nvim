@@ -13,14 +13,33 @@
 --   nvim --headless -u <cfg>/init.lua -c 'luafile test/ts_install.lua' -c qa
 -- Requires network + a C compiler.  Exits non-zero on failure.
 
-local lang = "json" -- not among Neovim's bundled parsers
+-- Behavioral availability check: can we build a parser and parse with it?
+-- NOT vim.treesitter.language.add -- that returns success on the language name
+-- even when no usable parser exists, so it cannot tell "present" from "absent".
+local function loads(lang)
+  return pcall(function()
+    local buf = vim.api.nvim_create_buf(false, true)
+    local ok, parser = pcall(vim.treesitter.get_parser, buf, lang)
+    assert(ok and parser and parser:parse()[1]:root())
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+end
+
+-- Probe with a parser that is neither bundled nor in the canonical set
+-- (config.parsers), so `make build-parsers` never pre-installs it and this
+-- test genuinely exercises installing something absent.
+local provisioned = {}
+for _, l in ipairs(require("config.parsers").all()) do provisioned[l] = true end
+local lang
+for _, candidate in ipairs({ "comment", "jsonc", "diff", "cpp" }) do
+  if not provisioned[candidate] and not loads(candidate) then
+    lang = candidate
+    break
+  end
+end
+assert(lang, "no suitable absent probe parser found (all candidates present?)")
 
 local ok, err = pcall(function()
-  -- Guard: if it is somehow already available the test proves nothing.
-  local already = pcall(vim.treesitter.language.add, lang)
-  assert(not already,
-    ("%q is already available; choose a parser Neovim does not bundle"):format(lang))
-
   -- Synchronous install so the parser exists for the checks below.
   vim.cmd("TSInstallSync " .. lang)
 
@@ -29,11 +48,9 @@ local ok, err = pcall(function()
   local so = dir .. "/parser/" .. lang .. ".so"
   assert(vim.uv.fs_stat(so), ("expected installed parser at %s"):format(so))
 
-  -- And it must actually load and parse.
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { '{ "a": 1 }' })
-  local parser = vim.treesitter.get_parser(buf, lang)
-  assert(parser and parser:parse()[1]:root(), "installed parser did not parse")
+  -- And it must actually load and parse (content-agnostic: any grammar yields
+  -- a root, with ERROR nodes at worst, for arbitrary input).
+  assert(loads(lang), "installed parser did not load")
 end)
 
 if not ok then

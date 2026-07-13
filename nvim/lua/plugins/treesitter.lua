@@ -20,8 +20,16 @@ local env = require("config.env")
 --
 -- Both cases are covered by headless tests (see the Makefile: test-fast
 -- verifies a bundled parser loads; test verifies an extra parser installs).
+--
+-- ensure_installed lists the canonical set (config.parsers).  `make sync`
+-- provisions these ahead of time via build/scripts/install_parsers.lua (the
+-- build-parsers target), so a working install never depends on the Neovim
+-- binary happening to bundle them.  auto_install remains on so any *other*
+-- language installs on first use.  Both funnel through the same nvim-treesitter
+-- installer, targeting parser_install_dir below.
 ts_configs.setup({
   parser_install_dir = env.treesitter_dir,
+  ensure_installed   = require("config.parsers").all(),
   auto_install       = true,
   highlight = { enable = true },
   indent    = { enable = true },

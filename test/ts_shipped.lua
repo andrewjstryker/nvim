@@ -13,8 +13,9 @@
 -- Run headless under the installed config.  Always exits 0; prints a loud
 -- warning to stderr listing any missing parser.
 
--- The parsers a standard Neovim install ships (0.11).
-local expected = { "vimdoc", "markdown", "markdown_inline", "lua", "vim", "query", "c" }
+-- The parsers a standard Neovim install ships (0.11).  Shared with the runtime
+-- and the build-parsers provisioning step via config.parsers.
+local expected = require("config.parsers").baseline
 
 local missing = {}
 for _, lang in ipairs(expected) do

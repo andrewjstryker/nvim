@@ -32,6 +32,9 @@ include build.mk
 # luarocks config + core rocks bootstrap
 include seed.mk
 
+# treesitter parser provisioning
+include treesitter.mk
+
 #------------------------------------------------------------------------------#
 # Verify invariants
 #------------------------------------------------------------------------------#
@@ -131,9 +134,11 @@ install: stage
 # rocks.toml is the single authority for package versions.
 # All steps are idempotent.  Steps 3-4 require network access.
 #
-# Treesitter parsers are NOT installed at build time.  Parsers bundled with
-# Neovim are provided by the nvim install itself; extra languages install on
-# first use via nvim-treesitter's auto_install (plugins/treesitter.lua).
+# Step 5 (build-parsers) provisions the canonical treesitter parser set into
+# the hermetic parser dir, so a working install never depends on the Neovim
+# binary happening to bundle them.  It is behavioral: parsers that already load
+# (bundled or previously installed) are left untouched, so hosts whose Neovim
+# ships them do no work and need no network.
 #
 # The smoke tests below check both paths, with deliberately different severity:
 #   * ts_shipped  — missing *bundled* parsers is expected content the install
@@ -143,7 +148,7 @@ install: stage
 #------------------------------------------------------------------------------#
 
 .PHONY: sync #> Build, install, and sync all plugins from rocks.toml
-sync: check-tools install rocks-sync
+sync: check-tools install rocks-sync build-parsers
 
 #------------------------------------------------------------------------------#
 # Test
