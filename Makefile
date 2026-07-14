@@ -35,6 +35,9 @@ include seed.mk
 # treesitter parser provisioning
 include treesitter.mk
 
+# testing and verification (smoke tests, keymap check, m4-token verify)
+include test.mk
+
 #------------------------------------------------------------------------------#
 # Verify invariants
 #------------------------------------------------------------------------------#
@@ -149,88 +152,6 @@ install: stage
 
 .PHONY: sync #> Build, install, and sync all plugins from rocks.toml
 sync: check-tools install rocks-sync build-parsers
-
-#------------------------------------------------------------------------------#
-# Test
-#
-# Two tiers:
-#   test-fast  — build + install + verify (no network, seconds)
-#   test       — full sync + smoke (network required, ~1 min)
-#
-# Both use temp directories so the user's real config is never touched.
-# Stage is clobbered with temp-path artifacts; the next real `make sync`
-# will cheaply re-stage with real paths.
-#------------------------------------------------------------------------------#
-
-# Shared helper: set up temp dirs, run a make target, then smoke-test Neovim.
-# Usage: $(call run_smoke,<make-target>[,<treesitter test scripts>])
-#
-# The optional second argument is a space-separated list of Lua test scripts
-# (see test/) run headless under the freshly installed config; each must exit
-# non-zero on failure.  Used to verify treesitter parsers work post-install.
-#
-# The temp directory structure ($tmp/config/nvim, $tmp/cache/nvim) satisfies
-# the /nvim invariant enforced above, so $(dir ...) produces correct XDG
-# base directories.
-define run_smoke
-	@tmp_root="$$(mktemp -d)"; \
-	tmp_cfg="$$tmp_root/config/nvim"; \
-	tmp_cache="$$tmp_root/cache/nvim"; \
-	mkdir -p "$$tmp_cfg" "$$tmp_cache"; \
-	trap 'rm -rf "$$tmp_root"' EXIT; \
-	echo "Smoke test using:"; \
-	echo "  NVIM_CONFIG_DIR=$$tmp_cfg"; \
-	echo "  NVIM_CACHE_DIR=$$tmp_cache"; \
-	$(MAKE) $(1) \
-	  NVIM_CONFIG_DIR="$$tmp_cfg" \
-	  NVIM_CACHE_DIR="$$tmp_cache"; \
-	echo "Verifying Neovim starts cleanly..."; \
-	smoke_err="$$tmp_root/smoke_stderr.log"; \
-	XDG_CONFIG_HOME="$$tmp_root/config" \
-	  XDG_CACHE_HOME="$$tmp_root/cache" \
-	  ${NVIM} --headless \
-	    -u "$$tmp_cfg/init.lua" \
-	    +"lua assert(package.loaded['config.env'], 'config.env not loaded')" \
-	    +qa 2>"$$smoke_err"; \
-	if grep -q "^Error\|^E[0-9]" "$$smoke_err"; then \
-	  echo "Smoke test FAILED — Neovim produced errors:"; \
-	  cat "$$smoke_err"; \
-	  exit 1; \
-	fi; \
-	echo "Smoke test passed."; \
-	for tscript in $(2); do \
-	  echo "Treesitter test: $$tscript"; \
-	  XDG_CONFIG_HOME="$$tmp_root/config" \
-	    XDG_CACHE_HOME="$$tmp_root/cache" \
-	    ${NVIM} --headless \
-	      -u "$$tmp_cfg/init.lua" \
-	      -c "luafile $$tscript" \
-	      -c "qa" \
-	    || { echo "Treesitter test FAILED: $$tscript"; exit 1; }; \
-	done
-endef
-
-.PHONY: test-fast #> Quick smoke test: build + install; warns on missing bundled parsers (no network)
-test-fast:
-	$(call run_smoke,install,$(abspath test/ts_shipped.lua))
-
-.PHONY: test #> Full smoke test: sync; errors if parser install is broken (network)
-test:
-	$(call run_smoke,sync,$(abspath test/ts_shipped.lua) $(abspath test/ts_install.lua))
-
-#------------------------------------------------------------------------------#
-# Verify: check rendered artifacts for unexpanded m4 tokens
-#------------------------------------------------------------------------------#
-
-.PHONY: verify #> Verify no unexpanded NV_M4_ tokens remain in staged Lua
-verify: ${stage_outputs} ${config_env}
-	@echo "Checking for unexpanded m4 tokens in staged Lua files..."
-	@if grep -rn 'NV_M4_[A-Z_]*' ${stage_nvim_dir}/lua/ 2>/dev/null \
-	    | grep -v '^\s*--'; then \
-	  echo "ERROR: Unexpanded m4 tokens found in staged output"; \
-	  exit 1; \
-	fi
-	@echo "All clear."
 
 #------------------------------------------------------------------------------#
 # Clean / uninstall
