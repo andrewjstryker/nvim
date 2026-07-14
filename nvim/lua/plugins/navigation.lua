@@ -39,8 +39,10 @@ if ok_tmux then
     disable_when_zoomed = true,
   })
 
-  -- Override the basic <C-h/j/k/l> maps from keymaps.lua with tmux-aware ones
-  local map = vim.keymap.set
+  -- Override the basic <C-h/j/k/l> maps from keymaps.lua with tmux-aware ones.
+  -- Routed through the wrapper so this deliberate re-own is recorded (and stays
+  -- silent) rather than looking like a foreign hijack (config.keymap).
+  local map = require("config.keymap").set
   map("n", "<C-h>", tmux_nav.NvimTmuxNavigateLeft,  { desc = "Move left (tmux-aware)" })
   map("n", "<C-j>", tmux_nav.NvimTmuxNavigateDown,  { desc = "Move down (tmux-aware)" })
   map("n", "<C-k>", tmux_nav.NvimTmuxNavigateUp,    { desc = "Move up (tmux-aware)" })

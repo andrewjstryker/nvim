@@ -3,15 +3,23 @@
 
 local ok, leap = pcall(require, "leap")
 if ok then
+  -- Route through the collision-aware wrapper so these global claims are
+  -- tracked and any later plugin stealing them is surfaced (config.keymap).
+  local map = require("config.keymap").set
   -- Explicit mappings rather than create_default_mappings(), which may not
   -- exist in all forks (e.g. Codeberg andyg/leap.nvim).
-  vim.keymap.set({"n", "x", "o"}, "s",  function() leap.leap({}) end,
+  map({"n", "x", "o"}, "s",  function() leap.leap({}) end,
     { desc = "Leap forward" })
-  vim.keymap.set({"n", "x", "o"}, "S",  function() leap.leap({ backward = true }) end,
+  -- `S` omits visual (x) mode: nvim-surround owns visual S ("surround the
+  -- selection").  Claiming it here only created a phantom map surround silently
+  -- overwrote -- the keymap audit flagged exactly that.
+  map({"n", "o"}, "S", function() leap.leap({ backward = true }) end,
     { desc = "Leap backward" })
+  -- Leap-from-windows lives on <leader>s, NOT gs: gs is fugitive's git status
+  -- (see config/keymaps.lua).  Relocated so nothing silently fights over gs.
   local has_user, leap_user = pcall(require, "leap.user")
   if has_user and leap_user.get_focusable_windows then
-    vim.keymap.set({"n", "x", "o"}, "gs", function()
+    map({"n", "x", "o"}, "<leader>s", function()
       leap.leap({ target_windows = leap_user.get_focusable_windows() })
     end, { desc = "Leap from windows" })
   end
