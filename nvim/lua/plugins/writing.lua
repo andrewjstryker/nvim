@@ -19,14 +19,34 @@ if ok_zen then
 end
 
 -- Render-markdown (in-buffer rendering of headings, tables, code blocks)
--- opt=true: packadd + setup on first entry into a markdown buffer.  The
--- markdown treesitter parser it depends on is guaranteed by Neovim's bundled
--- parsers (verified by the treesitter tests), so we load it directly rather
--- than guarding on parser availability.
+-- opt=true: packadd + setup on first entry into a markdown buffer.
+--
+-- render-markdown's plugin file attaches eagerly on packadd and builds a
+-- markdown treesitter parser immediately; if no parser can be created it throws
+-- (E5113) on every markdown buffer.  So we gate on whether the parser actually
+-- LOADS before loading the plugin.  This is a behavioral check, not a file or
+-- name check: vim.treesitter.language.add() returns true even on a binary that
+-- ships no usable parser, so only get_parser()+parse() is trustworthy.  A
+-- correctly provisioned install (see `make build-parsers`) always passes; a
+-- broken one degrades to a warning instead of a wall of errors.
+local function markdown_parser_loads()
+  return pcall(function()
+    local parser = vim.treesitter.get_parser(0, "markdown")
+    assert(parser and parser:parse()[1]:root())
+  end)
+end
+
 vim.api.nvim_create_autocmd("FileType", {
   pattern = "markdown",
   once = true,
   callback = function()
+    if not markdown_parser_loads() then
+      vim.notify(
+        "render-markdown: markdown treesitter parser unavailable -- run `make build-parsers`",
+        vim.log.levels.WARN
+      )
+      return
+    end
     vim.cmd("packadd render-markdown.nvim")
     local ok_rm, render_md = pcall(require, "render-markdown")
     if ok_rm then
