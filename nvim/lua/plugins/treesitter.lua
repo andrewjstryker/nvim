@@ -1,36 +1,80 @@
 -- ~/.config/nvim/lua/plugins/treesitter.lua
--- Plugin: nvim-treesitter
+-- Plugin: nvim-treesitter (the `main` branch -- the v1.0 rewrite)
+--
+-- Branch choice is load-bearing.  The old `master` branch is locked at Neovim
+-- <= 0.11: under 0.12 its query directives still index `match[capture_id]` as a
+-- single node, but Neovim now passes a LIST of nodes per capture id, so every
+-- markdown injection dies with "attempt to call method 'range' (a nil value)".
+-- `main` targets Neovim 0.12+ and is the only branch that works here.
+--
+-- `main` is a different plugin, not a version bump.  There is no
+-- `nvim-treesitter.configs`, no `ensure_installed`, no `auto_install`, and no
+-- `:TSInstallSync`.  It provides a parser installer, the queries for those
+-- parsers, and an indent expression.  Highlighting, folding, and injections are
+-- Neovim's own, enabled per buffer -- which is what this file does.
+--
+-- Ownership follows the project's probing policy (design.md §2/§4): the parser
+-- set is a BUILD-TIME INVARIANT, so runtime assumes it holds.
+--
+--   * config.parsers is the canonical set.  `make sync` provisions it via
+--     build-parsers, which fails the build if any parser cannot be installed.
+--   * Adding a language is a build-time act: add it to config.parsers and
+--     re-run `make sync`.  There is deliberately no install-on-use path --
+--     `master`'s auto_install was the runtime half of a build-time concern, and
+--     under `main` it would mean hand-rolled probing (is the CLI on PATH? is
+--     the language in the registry? did the compile succeed?) to repair a
+--     provisioning step that already ran.
+--   * The tree-sitter CLI that `main` shells out to is likewise a build-time
+--     prerequisite, discovered as TREE_SITTER in environment.mk and enforced by
+--     `make build-parsers`.  Runtime does not re-check it.
 
-local ok, ts_configs = pcall(require, "nvim-treesitter.configs")
-if not ok then return end
-
--- Pin parser installs to the hermetic treesitter dir (already on rtp via
--- env.lua).  Without this, :TSInstall writes to stdpath("data")/site/parser/
--- which is not on the hermetic rtp, so parsers never persist across sessions.
+local ts = require("nvim-treesitter")
 local env = require("config.env")
 
--- Parser ownership is split deliberately:
---   * Parsers bundled with Neovim (vimdoc, markdown, lua, vim, query, c, ...)
---     are provided by the nvim install itself, found via $VIMRUNTIME/parser
---     on the runtimepath.  No config action needed.
---   * Any *other* language is installed on first use by nvim-treesitter's own
---     auto_install, into the hermetic parser dir below.  This replaces the
---     hand-rolled get_parser wrapper we used to carry -- the plugin does this
---     natively, without patching core Neovim APIs.
+-- Parsers AND queries install here.  Under `main` the queries for a language
+-- ship with the language -- they are linked into <install_dir>/queries/<lang>/
+-- at install time rather than carried on the plugin's own runtimepath.
 --
--- Both cases are covered by headless tests (see the Makefile: test-fast
--- verifies a bundled parser loads; test verifies an extra parser installs).
+-- setup() prepends install_dir to the runtimepath, and it is the SOLE owner of
+-- that entry: env.lua deliberately leaves the treesitter dir out of the
+-- hermetic rtp it builds.  Listing it in both places puts it on the rtp twice,
+-- and Neovim reads every query file under a duplicated entry twice and
+-- concatenates the results.
 --
--- ensure_installed lists the canonical set (config.parsers).  `make sync`
--- provisions these ahead of time via build/scripts/install_parsers.lua (the
--- build-parsers target), so a working install never depends on the Neovim
--- binary happening to bundle them.  auto_install remains on so any *other*
--- language installs on first use.  Both funnel through the same nvim-treesitter
--- installer, targeting parser_install_dir below.
-ts_configs.setup({
-  parser_install_dir = env.treesitter_dir,
-  ensure_installed   = require("config.parsers").all(),
-  auto_install       = true,
-  highlight = { enable = true },
-  indent    = { enable = true },
+-- The dir has to exist BEFORE setup() puts it on the runtimepath.  Neovim
+-- resolves the runtimepath once at startup and drops entries that are not there
+-- yet, so on a freshly cleaned tree the install dir would stay invisible for the
+-- whole session: parsers install successfully and then fail to load, which is
+-- exactly what `make clean-parsers && make build-parsers` does in one process.
+vim.fn.mkdir(env.treesitter_dir .. "/parser", "p")
+
+ts.setup({ install_dir = env.treesitter_dir })
+
+---------------------------------------------------------------------------
+-- Enable highlighting and indentation
+--
+-- `main` ships neither: highlighting is Neovim's (vim.treesitter.start) and
+-- indentation is this plugin's indentexpr.  Both are enabled for exactly the
+-- filetypes served by the canonical parser set -- no wider, so a filetype
+-- without a provisioned parser keeps its regex syntax instead of erroring, and
+-- no narrower, so every language the build promises is actually lit up.
+--
+-- The language -> filetype mapping comes from Neovim's own registry (a parser
+-- can serve several filetypes: bash -> sh, vimdoc -> help, ...), so the
+-- pattern list stays correct without a second table to maintain here.
+---------------------------------------------------------------------------
+local ft_lang = {}
+for _, lang in ipairs(require("config.parsers").all()) do
+  for _, ft in ipairs(vim.treesitter.language.get_filetypes(lang)) do
+    ft_lang[ft] = lang
+  end
+end
+
+vim.api.nvim_create_autocmd("FileType", {
+  group = vim.api.nvim_create_augroup("TreesitterAttach", { clear = true }),
+  pattern = vim.tbl_keys(ft_lang),
+  callback = function(args)
+    vim.treesitter.start(args.buf, ft_lang[args.match])
+    vim.bo[args.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+  end,
 })

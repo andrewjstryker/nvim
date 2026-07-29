@@ -126,12 +126,18 @@ git = "stevearc/oil.nvim"
 git = "nvim-telescope/telescope.nvim"
 
 # --- Treesitter & LSP ---
-# nvim-treesitter's default branch (`main`) is the v1.0 rewrite with a
-# completely different API (no nvim-treesitter.configs, no :TSInstall).
-# Our config uses the legacy stable API on `master`.
+# `main` is nvim-treesitter's v1.0 rewrite and the only branch that works on
+# Neovim 0.12.  The legacy `master` branch is locked at Neovim <= 0.11: its
+# query directives index `match[capture_id]` as a single node, but 0.12 passes a
+# LIST of nodes per capture id, so every markdown injection raises
+# "attempt to call method 'range' (a nil value)".
+#
+# The rewrite has a completely different API (no nvim-treesitter.configs, no
+# ensure_installed/auto_install, no :TSInstallSync) and requires the tree-sitter
+# CLI >= 0.26.1 on PATH to compile parsers.  See lua/plugins/treesitter.lua.
 [plugins.nvim-treesitter]
 git = "nvim-treesitter/nvim-treesitter"
-branch = "master"
+branch = "main"
 
 [plugins.nvim-lspconfig]
 git = "neovim/nvim-lspconfig"

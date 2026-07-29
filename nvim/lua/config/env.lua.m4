@@ -83,7 +83,6 @@ local function setup_paths()
   --    runtimepath:
   --      config_dir          -- lua/config/, lua/plugins/, after/, ftplugin/
   --      rocks_site          -- git-cloned plugins runtime files
-  --      treesitter_dir      -- parser/*.so installed by :TSInstall
   --      vim.env.VIMRUNTIME  -- Neovim own runtime (syntax, ftplugin, etc.)
   --      config_dir/after    -- user after/ overrides
   --
@@ -93,6 +92,12 @@ local function setup_paths()
   --    This is intentionally exclusive.  If a directory is not listed here,
   --    Neovim will not search it.  This prevents stale system plugins,
   --    user-global installations, and flatpak artifacts from leaking in.
+  --
+  --    M.treesitter_dir is deliberately ABSENT.  nvim-treesitter's setup()
+  --    prepends its install_dir to the runtimepath itself, so listing it here
+  --    too would put it on the rtp twice -- and Neovim reads every query file
+  --    under a duplicated entry twice and concatenates the results.  The dir is
+  --    exported above and lua/plugins/treesitter.lua is its sole rtp owner.
   ---------------------------------------------------------------------------
 
   -- Resolve rocks.nvim versioned directory (glob → concrete path).
@@ -102,7 +107,6 @@ local function setup_paths()
   local rtp = {
     M.config_dir,
     M.rocks_site,
-    M.treesitter_dir,
     vim.env.VIMRUNTIME,
     M.config_dir .. "/after",
   }
@@ -110,10 +114,6 @@ local function setup_paths()
   if rocks_rtp ~= "" then
     table.insert(rtp, 2, rocks_rtp)
   end
-
-  -- Ensure the treesitter parser dir exists so nvim-treesitter's TSInstall
-  -- has a writable target and nvim's rtp scan doesn't skip it on first run.
-  vim.fn.mkdir(M.treesitter_dir .. "/parser", "p")
 
   vim.opt.runtimepath = rtp
 
