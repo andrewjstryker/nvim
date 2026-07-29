@@ -55,6 +55,24 @@ stage_m4_dir   := ${stage_dir}/m4
 # Derive a cache root from NVIM_CACHE_DIR (user-facing knob from environment.mk).
 nvim_cache_root     := ${NVIM_CACHE_DIR}
 
+#------------------------------------------------------------------------------#
+# XDG bases implied by the install locations
+#
+# The top-level Makefile enforces that both NVIM_CONFIG_DIR and NVIM_CACHE_DIR
+# end in /nvim, so stripping the last component yields the XDG base Neovim
+# itself would derive.
+#
+# Any headless Neovim the build launches MUST export these.  Neovim's default
+# runtimepath includes $XDG_CONFIG_HOME/nvim, so without them a `-u
+# <target>/init.lua` still resolves `require("config.…")` against the user's
+# real ~/.config/nvim -- silently building against the wrong tree.  Invisible
+# for a normal install (the derived values equal the defaults) and only
+# observable when the dirs are overridden, which is exactly what the tests do.
+#------------------------------------------------------------------------------#
+
+nvim_xdg_config := $(patsubst %/,%,$(dir ${NVIM_CONFIG_DIR}))
+nvim_xdg_cache  := $(patsubst %/,%,$(dir ${NVIM_CACHE_DIR}))
+
 # Hermetic LuaRocks tree lives under ${nvim_rocks_dir}.
 nvim_rocks_dir      := ${nvim_cache_root}/rocks
 luarocks_config_dir := ${nvim_rocks_dir}/luarocks
