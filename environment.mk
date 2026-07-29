@@ -63,6 +63,47 @@ M4        ?= $(shell command -v m4)
 # luarocks command (used directly — see "LuaRocks isolation" in design.md)
 LUAROCKS ?= $(shell command -v luarocks)
 
+#------------------------------------------------------------------------------#
+#
+# tree-sitter CLI discovery (host discovery + reasonable check)
+#
+# nvim-treesitter's `main` branch compiles every parser by shelling out to
+# `tree-sitter build`, so the CLI is a hard prerequisite of build-parsers (and
+# only of build-parsers — build, install, and test-fast do not need it, so it is
+# NOT in the global toolset).
+#
+# Reasonable check: the plugin requires >= 0.26.1 and older CLIs fail at build
+# time with unhelpful errors, so a too-old binary is treated as absent.
+# `tree-sitter --version` prints "tree-sitter <semver>" on stdout.
+#
+# Result convention (as with LUA): TREE_SITTER is either a resolved executable
+# path expected to work, or empty.
+#
+# Wrapped in ifndef + := so the version probe runs at most once per make
+# invocation, and so a user override (TREE_SITTER=/path/to/tree-sitter) wins.
+#
+#------------------------------------------------------------------------------#
+
+TREE_SITTER_MIN_VERSION ?= 0.26.1
+
+ifndef TREE_SITTER
+TREE_SITTER := $(shell \
+  cmd="$$(command -v tree-sitter 2>/dev/null)"; \
+  if [ -z "$$cmd" ]; then \
+    echo ""; \
+    exit 0; \
+  fi; \
+  ver="$$( "$$cmd" --version 2>/dev/null | awk '{print $$2}' )"; \
+  if [ -z "$$ver" ]; then \
+    echo ""; \
+    exit 0; \
+  fi; \
+  min='${TREE_SITTER_MIN_VERSION}'; \
+  oldest="$$(printf '%s\n%s\n' "$$min" "$$ver" | sort -V | head -n 1)"; \
+  [ "$$oldest" = "$$min" ] && echo "$$cmd" || echo "" \
+)
+endif
+
 # Optional formatter binaries (conform.nvim dispatches to whatever is on PATH
 # at build time).  Empty → the formatter is absent; project.mk omits the
 # corresponding m4 define and the generated formatting.lua drops any filetype
@@ -156,6 +197,7 @@ define toolset_summary
   NVIM........................ ${NVIM}
   LUA......................... ${LUA}
   LUAROCKS.................... ${LUAROCKS}
+  TREE_SITTER................. ${TREE_SITTER}
   RSYNC....................... ${RSYNC}
   GIT......................... ${GIT}
   AWK......................... ${AWK}
