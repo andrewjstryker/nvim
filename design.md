@@ -446,15 +446,34 @@ find a fully populated environment on first boot.
 
 #### Treesitter parsers
 
-Treesitter parsers are **not** installed at build time. The build clones
-`nvim-treesitter` (via rocks_sync) and `plugins/treesitter.lua` configures
-highlight and indent. Parsers are installed on demand at runtime: the
-autocmd in `autocmds.lua` wraps `vim.treesitter.start()` and prompts the
-user to install missing parsers on first encounter.
+Treesitter parsers **are** installed at build time. `make sync` clones
+`nvim-treesitter` (via rocks_sync) and then runs `build-parsers`, which
+executes `build/scripts/install_parsers.lua` under headless Neovim to install
+the canonical set in `lua/config/parsers.lua` — parsers *and* their queries —
+into the hermetic treesitter dir. A parser that cannot be installed **fails
+the build**.
 
-This avoids a C compiler requirement at build time, eliminates the only
-build phase that would invoke headless Neovim, and removes a dependency on
-nvim-treesitter's install API stability.
+This is a deliberate application of the probing policy: the parser set is an
+invariant **established before installation**, so runtime assumes it holds.
+`plugins/treesitter.lua` enables `vim.treesitter.start()` and the indent
+expression for exactly the filetypes that set serves, and does no probing,
+no repair, and no install-on-use. Adding a language is a build-time act: edit
+`config.parsers`, re-run `make sync`.
+
+The plugin tracks nvim-treesitter's **`main`** branch (the v1.0 rewrite). The
+legacy `master` branch is locked at Neovim ≤ 0.11 — its query directives index
+`match[capture_id]` as a single node, while Neovim 0.12 passes a *list* of
+nodes per capture id, so every markdown injection raises `attempt to call
+method 'range' (a nil value)`. `main` requires the `tree-sitter` CLI
+(≥ `TREE_SITTER_MIN_VERSION`) to compile parsers; `environment.mk` discovers it
+as `TREE_SITTER` (host discovery, §1) and `check-treesitter-cli` gates
+`build-parsers` on it. The guard is scoped to that target, so `build`,
+`install`, and `test-fast` still work on a host without the CLI.
+
+The cost of this arrangement is a C compiler and the tree-sitter CLI at build
+time, plus a dependency on nvim-treesitter's install API. What it buys is that
+a working install never depends on the Neovim binary happening to bundle the
+parsers it needs, and that the runtime stays free of provisioning logic.
 
 Sync is the **only** phase that requires network access.
 
@@ -484,6 +503,41 @@ Both tiers:
 
 This ensures that **test and install use identical logic**, differing only by
 their destination roots.
+
+#### What the treesitter checks assert
+
+The `test` tier adds two post-install checks, both stated as **behavior a user
+depends on**, never as file layout:
+
+* **`ts_works`** — does treesitter work for every language the build promised?
+  Measured as a user experiences it: open a buffer of the language's filetype
+  and a live highlighter is attached. One assertion covers the parser, its
+  queries, their mutual compatibility, and the `FileType` wiring.
+* **`ts_install`** — can this environment install a language it does not have?
+  The installed language must then parse *and* highlight.
+
+Neither inspects the filesystem. Whether a `.so` or a query file landed at some
+expected path is a build-time substitution — authoritative under the probing
+policy (§2), invisible to the user, and a mere proxy for the thing that
+matters. A parser that loads while its queries are missing or mismatched
+satisfies every path assertion and still highlights nothing, which is exactly
+the failure the migration to `main` uncovered.
+
+`test-fast` runs no treesitter check at all: it installs the config without
+provisioning plugins or parsers, so the only honest assertion at that point is
+that Neovim starts cleanly.
+
+#### Headless Neovim must be XDG-isolated
+
+Every headless Neovim the build launches runs with `XDG_CONFIG_HOME` and
+`XDG_CACHE_HOME` exported from `NVIM_CONFIG_DIR` / `NVIM_CACHE_DIR`
+(`nvim_xdg_config`, `nvim_xdg_cache` in `project.mk`). Neovim's *default*
+runtimepath includes `$XDG_CONFIG_HOME/nvim`, so `-u <target>/init.lua` alone
+does **not** isolate: `require("config.env")` resolves against the user's real
+`~/.config/nvim` and the build silently operates on the wrong tree. For a
+normal install the derived values equal the defaults, so this is invisible;
+it only bites when the directories are overridden — which is precisely what
+the test tiers do.
 
 #### XDG overrides and the `/nvim` invariant
 
