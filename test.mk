@@ -42,6 +42,11 @@
 #   test-fast  — build + install + verify (no network, seconds)
 #   test       — full sync + smoke (network required, ~1 min)
 #
+# The treesitter checks in the `test` tier assert BEHAVIOR, never layout:
+#   ts_works    — does treesitter work for every language the build promises?
+#   ts_install  — can this environment install a language it does not have?
+# Neither looks at where a parser or query file landed; see design.md §2.
+#
 # Both use temp directories so the user's real config is never touched.
 # Stage is clobbered with temp-path artifacts; the next real `make sync`
 # will cheaply re-stage with real paths.
@@ -83,7 +88,8 @@ define run_smoke
 	  exit 1; \
 	fi; \
 	echo "Smoke test passed."; \
-	for tscript in $(2); do \
+	scripts="$(2)"; \
+	for tscript in $$scripts; do \
 	  echo "Post-install check: $$tscript"; \
 	  XDG_CONFIG_HOME="$$tmp_root/config" \
 	    XDG_CACHE_HOME="$$tmp_root/cache" \
@@ -95,13 +101,17 @@ define run_smoke
 	done
 endef
 
-.PHONY: test-fast #> Quick smoke test: build + install; warns on missing bundled parsers (no network)
+# test-fast deliberately runs no post-install checks.  It installs the config
+# but never provisions plugins or parsers, so the only honest thing to assert at
+# that point is the one it does assert: Neovim starts cleanly.  Checking
+# treesitter here would only ever report the absence of a step this tier skips.
+.PHONY: test-fast #> Quick smoke test: build + install + clean startup (no network)
 test-fast:
-	$(call run_smoke,install,$(abspath test/ts_shipped.lua))
+	$(call run_smoke,install)
 
-.PHONY: test #> Full smoke test: sync; errors if parser install is broken (network)
+.PHONY: test #> Full smoke test: sync, then check treesitter works, installs, and keymaps (network)
 test:
-	$(call run_smoke,sync,$(abspath test/ts_shipped.lua) $(abspath test/ts_install.lua) $(abspath test/keymaps.lua))
+	$(call run_smoke,sync,$(abspath test/ts_works.lua) $(abspath test/ts_install.lua) $(abspath test/keymaps.lua))
 
 #------------------------------------------------------------------------------#
 # Pre-install keymap collision check
