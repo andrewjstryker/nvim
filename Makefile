@@ -139,15 +139,19 @@ install: stage
 #
 # Step 5 (build-parsers) provisions the canonical treesitter parser set into
 # the hermetic parser dir, so a working install never depends on the Neovim
-# binary happening to bundle them.  It is behavioral: parsers that already load
-# (bundled or previously installed) are left untouched, so hosts whose Neovim
-# ships them do no work and need no network.
+# binary happening to bundle them.  It ESTABLISHES that invariant and verifies
+# it behaviorally — every canonical language must parse and highlight — so a
+# language that cannot be provisioned fails the build rather than degrading
+# silently at runtime.
 #
-# The smoke tests below check both paths, with deliberately different severity:
-#   * ts_shipped  — missing *bundled* parsers is expected content the install
-#                   failed to provide: a loud WARNING, never a build failure.
-#   * ts_install  — a broken *install capability* makes every missing parser
-#                   unrecoverable: a hard ERROR that fails the build.
+# The smoke tests assert the two things a user depends on, both behaviorally:
+#   * ts_works    — does treesitter work for every language the build promised?
+#                   A hard ERROR: the canonical set is a build-time contract.
+#   * ts_install  — can this environment install a language it does not have?
+#                   A hard ERROR: without it, anything outside the canonical
+#                   set is unreachable.
+# Neither asserts on file layout — where a parser or query lives is a build-time
+# substitution, authoritative by the probing policy, and invisible to the user.
 #------------------------------------------------------------------------------#
 
 .PHONY: sync #> Build, install, and sync all plugins from rocks.toml
