@@ -115,13 +115,30 @@ stage: build runtime
 # Install: sync stage → NVIM_CONFIG_DIR
 #------------------------------------------------------------------------------#
 
+# DESTDIR is the staged-root prefix required by the protocol: it relocates
+# where we write without changing what we write.  Empty for a real install.
+DESTDIR ?=
+
+install_dir := ${DESTDIR}${NVIM_CONFIG_DIR}
+
 .PHONY: install #> Install staged Neovim config into NVIM_CONFIG_DIR
 install: stage
-	@echo "Installing Neovim config to ${NVIM_CONFIG_DIR}"
-	@mkdir -p "${NVIM_CONFIG_DIR}"
+	@echo "Installing Neovim config to ${install_dir}"
+	@mkdir -p "${install_dir}"
 	@${RSYNC} --archive --delete \
 	  "${stage_nvim_dir}/" \
-	  "${NVIM_CONFIG_DIR}/"
+	  "${install_dir}/"
+
+.PHONY: install-dry-run #> Report what install would change
+install-dry-run: stage
+	@if [ -d "${install_dir}" ]; then \
+	  ${RSYNC} --archive --delete --dry-run --itemize-changes \
+	    "${stage_nvim_dir}/" \
+	    "${install_dir}/"; \
+	else \
+	  printf 'would create tree %s/ from %s/\n' \
+	    "${install_dir}" "${stage_nvim_dir}"; \
+	fi
 
 #------------------------------------------------------------------------------#
 # Sync: install + sync all plugins from rocks.toml
@@ -173,15 +190,26 @@ clean-cache:
 	@rm -rf "${nvim_rocks_dir}" "${luarocks_config_dir}"
 	@printf "\033[1;32mCache removed.\033[0m\n"
 
-.PHONY: uninstall #> Remove installed config (FORCE=1 required) and stage
+# The protocol forbids gating uninstall behind a confirmation flag: its scope
+# is bounded by declaration instead.  This removes the owned config tree and
+# nothing else — the hermetic rocks tree, treesitter parsers, and every other
+# cache stay put, because they are expensive to rebuild and are not
+# configuration.  Use uninstall-cache to take those too.
+.PHONY: uninstall #> Remove installed config and stage
 uninstall: clean
-	@if [[ "${FORCE:-0}" == "1" ]]; then \
-		printf "\033[1;33mFORCE=1: removing %s\033[0m\n" "${NVIM_CONFIG_DIR}"; \
-		rm -rf "${NVIM_CONFIG_DIR}"; \
-	else \
-		printf "\033[1;34mConfig preserved. Use FORCE=1 to remove %s.\033[0m\n" \
-			"${NVIM_CONFIG_DIR}"; \
+	@if [ -d "${install_dir}" ]; then \
+	  rm -rf "${install_dir}"; \
+	  printf 'removed %s/\n' "${install_dir}"; \
 	fi
+
+.PHONY: uninstall-dry-run #> Report what uninstall would remove
+uninstall-dry-run:
+	@if [ -d "${install_dir}" ]; then \
+	  printf 'would remove %s/\n' "${install_dir}"; \
+	else \
+	  printf 'not installed  %s/\n' "${install_dir}"; \
+	fi
+	@printf 'left in place  %s/ (cache)\n' "${NVIM_CACHE_DIR}"
 
 .PHONY: uninstall-cache #> Remove installed config + hermetic cache
 uninstall-cache: uninstall clean-cache

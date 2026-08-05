@@ -80,6 +80,17 @@ env_section && /^\t#[>!]/ {
         next;
 }
 
+## Help markers written on the .PHONY declaration rather than the rule, as in
+##   .PHONY: install #> Install the thing
+## The field separator swallows the target name here, so pull it back out of
+## $0; without this every such target renders as ".PHONY".
+/^\.PHONY:[[:space:]]+[^[:space:]]+[[:space:]]+#[>!]/ {
+        phony_target = gensub(/^\.PHONY:[[:space:]]+([^[:space:]]+).*/,
+                              "\\1", "g", $0);
+        printf(normal_fmt, phony_target, $2);
+        next;
+}
+
 # normal targets
 /^[^[:space:]:]+([[:space:]]+[^[:space:]:]+)*[[:space:]]*:.*#>/ {
         printf(normal_fmt, $1, $2);

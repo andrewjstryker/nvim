@@ -65,18 +65,27 @@ LUAROCKS ?= $(shell command -v luarocks)
 
 #------------------------------------------------------------------------------#
 #
-# tree-sitter CLI discovery (host discovery + reasonable check)
+# Treesitter capability discovery (host discovery + reasonable check)
 #
-# nvim-treesitter's `main` branch compiles every parser by shelling out to
-# `tree-sitter build`, so the CLI is a hard prerequisite of build-parsers (and
-# only of build-parsers — build, install, and test-fast do not need it, so it is
-# NOT in the global toolset).
+# Treesitter is an OPTIONAL concern, discovered exactly like a formatter: if the
+# host cannot compile parsers, the build stages no treesitter configuration and
+# says so.  Neovim without treesitter falls back to regex syntax and remains
+# usable, so a host missing these tools is a WARNING, never a build failure.
 #
-# Reasonable check: the plugin requires >= 0.26.1 and older CLIs fail at build
-# time with unhelpful errors, so a too-old binary is treated as absent.
+# Compiling one parser needs two things, so the capability is their conjunction:
+#
+#   TREE_SITTER  — nvim-treesitter's `main` branch shells out to
+#                  `tree-sitter build` for every parser.
+#   C_COMPILER   — which in turn needs a C compiler.
+#
+# Gating on the CLI alone would leave a hole: a host with the CLI and no
+# compiler would pass the gate and then fail while compiling.
+#
+# Reasonable check on the CLI: the plugin requires >= 0.26.1 and older CLIs fail
+# with unhelpful errors, so a too-old binary is treated as absent.
 # `tree-sitter --version` prints "tree-sitter <semver>" on stdout.
 #
-# Result convention (as with LUA): TREE_SITTER is either a resolved executable
+# Result convention (as with LUA): each variable is either a resolved executable
 # path expected to work, or empty.
 #
 # Wrapped in ifndef + := so the version probe runs at most once per make
@@ -103,6 +112,19 @@ TREE_SITTER := $(shell \
   [ "$$oldest" = "$$min" ] && echo "$$cmd" || echo "" \
 )
 endif
+
+# The C compiler `tree-sitter build` invokes.  Deliberately NOT named CC: GNU
+# make predefines CC with origin "default", so `CC ?= ...` would never assign.
+C_COMPILER ?= $(shell command -v cc || command -v gcc || command -v clang)
+
+# The capability gate.  Non-empty only when a parser can actually be compiled.
+# Consumed by:
+#   * project.mk    — stamps NV_M4_TREE_SITTER, which decides whether
+#                     plugins/treesitter.lua and the markdown rendering in
+#                     plugins/writing.lua are staged with any code at all
+#   * treesitter.mk — build-parsers warns and no-ops instead of provisioning
+#   * test.mk       — the treesitter checks are skipped rather than failed
+TREESITTER_CAPABLE := $(if $(and $(strip ${TREE_SITTER}),$(strip ${C_COMPILER})),yes,)
 
 # Optional formatter binaries (conform.nvim dispatches to whatever is on PATH
 # at build time).  Empty → the formatter is absent; project.mk omits the
@@ -198,6 +220,8 @@ define toolset_summary
   LUA......................... ${LUA}
   LUAROCKS.................... ${LUAROCKS}
   TREE_SITTER................. ${TREE_SITTER}
+  C_COMPILER.................. ${C_COMPILER}
+  TREESITTER_CAPABLE.......... ${TREESITTER_CAPABLE}
   RSYNC....................... ${RSYNC}
   GIT......................... ${GIT}
   AWK......................... ${AWK}

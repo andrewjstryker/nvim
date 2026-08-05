@@ -127,6 +127,7 @@ hermetic_lua_cpath := ${lua_lib_dir}/?.so;${lua_lib_dir}/?.dylib;${lua_lib_dir}/
 #   NV_M4_NVIM_ROCKS_DIR       — hermetic rocks tree root
 #   NV_M4_NVIM_CONFIG_DIR      — Neovim config directory (for hermetic rtp)
 #   NV_M4_TREESITTER_DIR       — hermetic treesitter parser root (on rtp)
+#   NV_M4_TREE_SITTER          — absolute path to tree-sitter    (optional)
 #   NV_M4_PRETTIER             — absolute path to prettier       (optional)
 #   NV_M4_STYLUA               — absolute path to stylua         (optional)
 #   NV_M4_RUFF                 — absolute path to ruff           (optional)
@@ -134,9 +135,13 @@ hermetic_lua_cpath := ${lua_lib_dir}/?.so;${lua_lib_dir}/?.dylib;${lua_lib_dir}/
 #   NV_M4_STYLER               — absolute path to styler         (optional)
 #   NV_M4_SQL_FORMATTER        — absolute path to sql_formatter  (optional)
 #
-# Optional formatter symbols are stamped only when environment.mk discovered
-# the binary on PATH.  Absent binaries produce NO define, so templates can use
-# m4_ifdef to conditionally emit configuration.
+# Optional symbols are stamped only when environment.mk discovered the tool on
+# PATH.  Absent tools produce NO define, so templates can use m4_ifdef to
+# conditionally emit configuration.
+#
+# NV_M4_TREE_SITTER is gated on TREESITTER_CAPABLE, not on TREE_SITTER alone: it
+# means "this host can compile parsers", which needs a C compiler too.  Its
+# absence is what makes the staged config omit treesitter entirely.
 #------------------------------------------------------------------------------#
 
 config_env := ${stage_m4_dir}/config_env.m4
@@ -167,6 +172,7 @@ ${config_env}:
 	    echo "m4_define(\`NV_M4_NVIM_ROCKS_DIR', \`${nvim_rocks_dir}')"; \
 	    echo "m4_define(\`NV_M4_NVIM_CONFIG_DIR', \`${NVIM_CONFIG_DIR}')"; \
 	    echo "m4_define(\`NV_M4_TREESITTER_DIR', \`${nvim_treesitter_dir}')"; \
+	    $(if ${TREESITTER_CAPABLE},echo "m4_define(\`NV_M4_TREE_SITTER', \`${TREE_SITTER}')";,  :;) \
 	    $(if ${PRETTIER},     echo "m4_define(\`NV_M4_PRETTIER', \`${PRETTIER}')";,             :;) \
 	    $(if ${STYLUA},       echo "m4_define(\`NV_M4_STYLUA', \`${STYLUA}')";,                 :;) \
 	    $(if ${RUFF},         echo "m4_define(\`NV_M4_RUFF', \`${RUFF}')";,                     :;) \
