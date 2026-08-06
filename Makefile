@@ -83,18 +83,36 @@ help:
 # Uses a heredoc to avoid shell quoting issues with paths that contain
 # special characters (the summary blocks may contain $(dir ...) expansions
 # with trailing slashes, etc.).
-.PHONY: show #> Show configuration variables
+.PHONY: show #> Show resolved variables and declared paths
+#
+# Printed with $(info) rather than a shell heredoc.  The heredoc that used to be
+# here could not work: make hands each recipe line to its own shell, so `cat
+# <<'SHOW_EOF'` read to end-of-file and the next line was executed as a command
+# ("Environment:: command not found").  $(info) prints a multi-line variable
+# verbatim and needs no shell at all -- which is also why the recipe body is a
+# bare colon.
+# $(info) strips leading whitespace from its argument, so the indent comes from
+# a variable holding two spaces.
+empty :=
+sp    := ${empty} ${empty}
+
 show:
-	@cat <<'SHOW_EOF'
-	Environment:
-	${env_summary}
-
-	Project:
-	${project_summary}
-
-	Tools:
-	${toolset_summary}
-	SHOW_EOF
+	$(info Environment:)
+	$(info ${env_summary})
+	$(info )
+	$(info Project:)
+	$(info ${project_summary})
+	$(info )
+	$(info Tools:)
+	$(info ${toolset_summary})
+	$(info )
+	$(info Declared paths:)
+	$(info ${sp}${sp}tree  0700   ${NVIM_CONFIG_DIR}/)
+	$(info )
+	$(info Written but NOT declared -- state, never reclaimed by uninstall:)
+	$(info ${sp}${sp}${NVIM_ROCKS_DIR}/          hermetic luarocks tree)
+	$(info ${sp}${sp}${nvim_treesitter_dir}/     compiled treesitter parsers)
+	@:
 
 #------------------------------------------------------------------------------#
 # Build & stage
@@ -121,24 +139,60 @@ DESTDIR ?=
 
 install_dir := ${DESTDIR}${NVIM_CONFIG_DIR}
 
-.PHONY: install #> Install staged Neovim config into NVIM_CONFIG_DIR
-install: stage
-	@echo "Installing Neovim config to ${install_dir}"
-	@mkdir -p "${install_dir}"
-	@${RSYNC} --archive --delete \
-	  "${stage_nvim_dir}/" \
-	  "${install_dir}/"
+#------------------------------------------------------------------------------#
+# DRY_RUN
+#
+# A MODE, not a set of targets: `make install DRY_RUN=1` runs the same recipe as
+# `make install`, so the report cannot drift from the action.  Deliberately NOT
+# assigned here -- a plain assignment would override the environment and
+# silently disarm it.  Any non-empty value is true.
+#
+# Every target that writes outside this working tree honours it: install,
+# uninstall, uninstall-cache, and the two provisioning steps sync runs.  A
+# modifier with exceptions is worse than no modifier, because the exception is
+# always found the expensive way.
+#
+# clean and clean-cache are the boundary.  clean only removes stage/, inside the
+# working tree, so a dry run may still do it; clean-cache reaches into
+# NVIM_CACHE_DIR and does not.
+#------------------------------------------------------------------------------#
 
-.PHONY: install-dry-run #> Report what install would change
-install-dry-run: stage
+$(if ${DRY_RUN},$(info === DRY RUN: nothing will be written ===))
+
+# --archive --delete is the claim that this directory is entirely ours, which
+# for $XDG_CONFIG_HOME/nvim it is: Neovim's own state lives in the cache and
+# data trees, never here.  --chmod makes the installed modes explicit rather
+# than whatever umask the build host happened to have.
+rsync_install = --archive --delete --chmod=D0700,F0600
+
+ifeq (${DRY_RUN},)
+  rsync_install += --itemize-changes
+else
+  rsync_install += --dry-run --itemize-changes
+endif
+
+.PHONY: install #> Install staged config into NVIM_CONFIG_DIR (DRY_RUN=1 to report)
+install: stage
+ifeq (${DRY_RUN},)
+	@mkdir -p "${install_dir}"
+	@${RSYNC} ${rsync_install} "${stage_nvim_dir}/" "${install_dir}/"
+else
+	@# rsync cannot report into a directory that does not exist, and a dry run
+	@# may not create one, so that single case is reported by hand.
 	@if [ -d "${install_dir}" ]; then \
-	  ${RSYNC} --archive --delete --dry-run --itemize-changes \
-	    "${stage_nvim_dir}/" \
-	    "${install_dir}/"; \
+	  ${RSYNC} ${rsync_install} "${stage_nvim_dir}/" "${install_dir}/"; \
 	else \
 	  printf 'would create tree %s/ from %s/\n' \
 	    "${install_dir}" "${stage_nvim_dir}"; \
 	fi
+endif
+
+# ../SPEC.md no longer lists these -- a dry run is the DRY_RUN mode.  ../config
+# still asks every repository for them, so they stay as delegators: one recipe
+# per action, no second implementation to drift.
+.PHONY: install-dry-run #> Report what install would change
+install-dry-run:
+	@${MAKE} --no-print-directory install DRY_RUN=1
 
 #------------------------------------------------------------------------------#
 # Sync: install + sync all plugins from rocks.toml
@@ -172,7 +226,17 @@ install-dry-run: stage
 #------------------------------------------------------------------------------#
 
 .PHONY: sync #> Build, install, and sync all plugins from rocks.toml
+ifeq (${DRY_RUN},)
 sync: check-tools install rocks-sync build-parsers
+else
+# rocks-sync clones and compiles into the hermetic tree, and build-parsers
+# compiles treesitter grammars into it.  Both write outside this working tree
+# and neither has a dry run of its own, so a dry run says what it would do and
+# stops -- rather than "reporting" by doing it.
+sync: check-tools install
+	@printf 'would sync rocks into %s/\n'    "${NVIM_ROCKS_DIR}"
+	@printf 'would build parsers into %s/\n' "${nvim_treesitter_dir}"
+endif
 
 #------------------------------------------------------------------------------#
 # Clean / uninstall
@@ -186,30 +250,32 @@ clean:
 
 .PHONY: clean-cache
 clean-cache:
-	@printf "\033[1;33mRemoving hermetic rocks cache…\033[0m\n"
-	@rm -rf "${nvim_rocks_dir}" "${luarocks_config_dir}"
-	@printf "\033[1;32mCache removed.\033[0m\n"
+	$(if ${DRY_RUN}, \
+	  @printf 'would remove %s/ and %s/\n' \
+	    "${nvim_rocks_dir}" "${luarocks_config_dir}", \
+	  @printf "\033[1;33mRemoving hermetic rocks cache…\033[0m\n"; \
+	  rm -rf "${nvim_rocks_dir}" "${luarocks_config_dir}"; \
+	  printf "\033[1;32mCache removed.\033[0m\n")
 
 # The protocol forbids gating uninstall behind a confirmation flag: its scope
 # is bounded by declaration instead.  This removes the owned config tree and
 # nothing else — the hermetic rocks tree, treesitter parsers, and every other
 # cache stay put, because they are expensive to rebuild and are not
 # configuration.  Use uninstall-cache to take those too.
-.PHONY: uninstall #> Remove installed config and stage
-uninstall: clean
+.PHONY: uninstall #> Remove installed configuration (DRY_RUN=1 to report only)
+uninstall:
 	@if [ -d "${install_dir}" ]; then \
-	  rm -rf "${install_dir}"; \
-	  printf 'removed %s/\n' "${install_dir}"; \
-	fi
-
-.PHONY: uninstall-dry-run #> Report what uninstall would remove
-uninstall-dry-run:
-	@if [ -d "${install_dir}" ]; then \
-	  printf 'would remove %s/\n' "${install_dir}"; \
+	  $(if ${DRY_RUN}, \
+	    printf 'would remove %s/\n' "${install_dir}", \
+	    rm -rf "${install_dir}" && printf 'removed %s/\n' "${install_dir}"); \
 	else \
 	  printf 'not installed  %s/\n' "${install_dir}"; \
 	fi
-	@printf 'left in place  %s/ (cache)\n' "${NVIM_CACHE_DIR}"
+	@printf 'left in place  %s/ (cache: rocks, parsers)\n' "${NVIM_CACHE_DIR}"
+
+.PHONY: uninstall-dry-run #> Report what uninstall would remove
+uninstall-dry-run:
+	@${MAKE} --no-print-directory uninstall DRY_RUN=1
 
 .PHONY: uninstall-cache #> Remove installed config + hermetic cache
 uninstall-cache: uninstall clean-cache

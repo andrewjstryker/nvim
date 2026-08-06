@@ -162,8 +162,19 @@ config_env := ${stage_m4_dir}/config_env.m4
 #   Do NOT use it as order-only (after |), or environment changes will not
 #   propagate.
 #
-.PHONY: ${config_env}
-${config_env}:
+#   And do NOT mark it .PHONY, which is what it used to be.  A .PHONY target is
+#   always considered out of date, and that verdict propagates: every target
+#   depending on it rebuilds on every invocation, whatever the mtimes say.  The
+#   cmp guard below was therefore doing nothing useful -- the m4-rendered Lua
+#   files were regenerated every single build, so every install reported them as
+#   changed.  FORCE gives the intended behaviour instead: the recipe still runs
+#   every time, but the file (and its mtime) only moves when the content does,
+#   and dependents compare against a real file.
+#
+.PHONY: FORCE
+FORCE:
+
+${config_env}: FORCE
 	@mkdir -p "$(dir $@)"
 	@set -eu; \
 	  tmp="$$(mktemp "$(dir $@)/.config_env.m4.XXXXXX")"; \
