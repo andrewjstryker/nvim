@@ -57,7 +57,7 @@
 #
 # The optional second argument is a space-separated list of Lua test scripts
 # (see test/) run headless under the freshly installed config; each must exit
-# non-zero on failure.  Used to check parsers and keymaps post-install.
+# non-zero on failure. Used to check parsers and keymaps after sync.
 #
 # The temp directory structure ($tmp/config/nvim, $tmp/cache/nvim) satisfies
 # the /nvim invariant enforced in the top-level Makefile, so $(dir ...) produces
@@ -66,7 +66,7 @@ define run_smoke
 	@tmp_root="$$(mktemp -d)"; \
 	tmp_cfg="$$tmp_root/config/nvim"; \
 	tmp_cache="$$tmp_root/cache/nvim"; \
-	mkdir -p "$$tmp_cfg" "$$tmp_cache"; \
+	mkdir -p "$$tmp_cfg" "$$tmp_cache" "$$tmp_root/state" "$$tmp_root/data"; \
 	trap 'rm -rf "$$tmp_root"' EXIT; \
 	echo "Smoke test using:"; \
 	echo "  NVIM_CONFIG_DIR=$$tmp_cfg"; \
@@ -78,6 +78,8 @@ define run_smoke
 	smoke_err="$$tmp_root/smoke_stderr.log"; \
 	XDG_CONFIG_HOME="$$tmp_root/config" \
 	  XDG_CACHE_HOME="$$tmp_root/cache" \
+	  XDG_STATE_HOME="$$tmp_root/state" \
+	  XDG_DATA_HOME="$$tmp_root/data" \
 	  ${NVIM} --headless \
 	    -u "$$tmp_cfg/init.lua" \
 	    +"lua assert(package.loaded['config.env'], 'config.env not loaded')" \
@@ -90,9 +92,11 @@ define run_smoke
 	echo "Smoke test passed."; \
 	scripts="$(2)"; \
 	for tscript in $$scripts; do \
-	  echo "Post-install check: $$tscript"; \
+	  echo "Post-sync check: $$tscript"; \
 	  XDG_CONFIG_HOME="$$tmp_root/config" \
 	    XDG_CACHE_HOME="$$tmp_root/cache" \
+	    XDG_STATE_HOME="$$tmp_root/state" \
+	    XDG_DATA_HOME="$$tmp_root/data" \
 	    ${NVIM} --headless \
 	      -u "$$tmp_cfg/init.lua" \
 	      -c "luafile $$tscript" \
@@ -101,7 +105,7 @@ define run_smoke
 	done
 endef
 
-# test-fast deliberately runs no post-install checks.  It installs the config
+# test-fast deliberately runs no post-sync checks. It installs the config
 # but never provisions plugins or parsers, so the only honest thing to assert at
 # that point is the one it does assert: Neovim starts cleanly.  Checking
 # treesitter here would only ever report the absence of a step this tier skips.
@@ -109,9 +113,9 @@ endef
 test-fast:
 	$(call run_smoke,install)
 
-.PHONY: test #> Full smoke test: sync, then check treesitter works, installs, and keymaps (network)
+.PHONY: test #> Full smoke test: apply, then check treesitter works, installs, and keymaps (network)
 test:
-	$(call run_smoke,sync,$(abspath test/ts_works.lua) $(abspath test/ts_install.lua) $(abspath test/keymaps.lua))
+	$(call run_smoke,apply,$(abspath test/ts_works.lua) $(abspath test/ts_install.lua) $(abspath test/keymaps.lua))
 
 #------------------------------------------------------------------------------#
 # Pre-install keymap collision check
@@ -150,12 +154,10 @@ check-keymaps: check-tools
 
 .PHONY: verify #> Verify no unexpanded NV_M4_ tokens remain in staged Lua
 verify: ${stage_outputs} ${config_env}
-	@echo "Checking for unexpanded m4 tokens in staged Lua files..."
 	@if grep -rn 'NV_M4_[A-Z_]*' ${stage_nvim_dir}/lua/ 2>/dev/null \
 	    | grep -v '^\s*--'; then \
 	  echo "ERROR: Unexpanded m4 tokens found in staged output"; \
 	  exit 1; \
 	fi
-	@echo "All clear."
 
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#

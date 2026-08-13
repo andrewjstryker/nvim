@@ -10,7 +10,7 @@
 #     by other *.mk files (e.g., NVIM_ROCKS_DIR, LUAROCKS_CONFIG).
 #   - Define hermetic Lua search paths (LUA_PATH / LUA_CPATH) for build-time
 #     luarocks and sync script isolation.
-#   - Generate stage/m4/config_env.m4 with content-comparison idempotence.
+#   - Generate stage/.m4/config_env.m4 as private build input.
 #   - Provide a summary block suitable for "make show".
 #
 # Assumptions:
@@ -29,24 +29,25 @@
 repo_root      := ${CURDIR}
 
 # Neovim source tree within the repo
-nvim_src_dir   := ${repo_root}/nvim
+nvim_src_dir   := ${repo_root}/src/config/nvim
 
-# Build assets (e.g., m4 macros, vendored tools, helper scripts)
+# First-party build assets (m4 macros and helper scripts)
 build_dir      := ${repo_root}/build
 build_bin      := ${build_dir}/bin
 m4_dir         := ${build_dir}/m4
 scripts_dir    := ${build_dir}/scripts
 
-# Vendored items (git submodules)
+# Third-party build inputs. No mapped vendor namespace is installed by nvim.
 vendor_dir     := ${repo_root}/vendor
 
 # Stage root and staged Neovim tree (assembled image)
 stage_dir      := ${repo_root}/stage
-stage_nvim_dir := ${stage_dir}/nvim
+stage_nvim_dir := ${stage_dir}/config/nvim
 
-# Generated m4 macros live under stage/ (build output, not source tree).
+# Generated m4 macros live in stage's private namespace (build output, not
+# source tree).
 # Static m4 macros live under build/m4/ (source tree, checked in).
-stage_m4_dir   := ${stage_dir}/m4
+stage_m4_dir   := ${stage_dir}/.m4
 
 #------------------------------------------------------------------------------#
 # Hermetic rocks tree + bridge knobs
@@ -116,9 +117,9 @@ hermetic_lua_cpath := ${lua_lib_dir}/?.so;${lua_lib_dir}/?.dylib;${lua_lib_dir}/
 #------------------------------------------------------------------------------#
 # Stamp configuration into a file
 #
-# config_env.m4 is generated into stage/m4/ so the source tree stays
+# config_env.m4 is generated into stage/.m4/ so the source tree stays
 # read-only during build.  The m4 command in build.mk uses two -I flags
-# to search both build/m4/ (static) and stage/m4/ (generated).
+# to search both build/m4/ (static) and stage/.m4/ (generated).
 #
 # paths.m4 (in build/m4/) does m4_include(`config_env.m4') — m4 finds
 # it via the include path, regardless of which directory it lives in.

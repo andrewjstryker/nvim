@@ -17,13 +17,13 @@
 # Build-specific internals
 #------------------------------------------------------------------------------#
 
-# Vendored fennel script and shared m4 macros live under ${build_dir}.
-# These are implementation details, not user knobs.
-fennel         := ${build_dir}/bin/fennel
+# Fennel is a third-party build input; shared m4 macros remain first-party
+# build assets. Neither participates in the installed manifest.
+fennel         := ${vendor_dir}/build/fennel/fennel
 
 # m4 include paths:
 #   - m4_include_dir (build/m4/) contains static, checked-in macros
-#   - stage_m4_dir   (stage/m4/) contains generated macros (config_env.m4)
+#   - stage_m4_dir   (stage/.m4/) contains private generated macros
 # Both are passed via -I so that m4_include(`config_env.m4') in paths.m4
 # finds the generated file regardless of which directory it lives in.
 m4_include_dir := ${build_dir}/m4
@@ -53,7 +53,7 @@ rwildcard = $(wildcard $1$2) \
 
 # Static m4 macro files (constants.m4, paths.m4, common.m4, etc.)
 # These live in build/m4/ (source tree) and are NOT .PHONY.
-# config_env.m4 is NOT here — it lives in stage/m4/ (generated).
+# config_env.m4 is NOT here — it lives in stage/.m4/ (generated).
 m4_static_src := $(call rwildcard,${build_dir}/m4/,*.m4)
 
 # All *.lua.m4 under nvim/lua
@@ -106,7 +106,7 @@ runtime_dirs := after ftplugin colors plugin
 runtime_src  := $(foreach d,${runtime_dirs},$(wildcard ${nvim_src_dir}/$d))
 
 .PHONY: runtime
-runtime:
+runtime: | stage-dirs
 	@for d in ${runtime_src}; do \
 	  ${RSYNC} --archive --delete "$$d/" "${stage_nvim_dir}/$$(basename $$d)/"; \
 	done
@@ -151,13 +151,13 @@ ${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua | stage-dirs
 
 # 2. m4 templates → Lua
 #    Static m4 files (build/m4/) are normal prerequisites.
-#    config_env.m4 (stage/m4/) is also a normal prerequisite: its recipe is
+#    config_env.m4 (stage/.m4/) is also a normal prerequisite: its recipe is
 #    .PHONY (runs every invocation), but the cmp guard only touches the file
 #    when its content changes.  Make's mtime graph then correctly rebuilds
 #    m4-rendered targets when the environment changes, and skips them when
 #    it doesn't.
 #
-#    Two -I flags: static macros in build/m4/, generated macros in stage/m4/.
+#    Two -I flags: static macros in build/m4/, generated macros in stage/.m4/.
 #
 #    ${config_env} is a NORMAL prerequisite (not order-only).  Its recipe is
 #    .PHONY so it runs every time, but the cmp guard in project.mk only

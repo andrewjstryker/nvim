@@ -36,8 +36,9 @@
 #       NVIM, NVIM_CONFIG_DIR, TREE_SITTER
 #   - project.mk has defined:
 #       nvim_treesitter_dir, scripts_dir, nvim_xdg_config, nvim_xdg_cache
-#   - The config is installed and nvim-treesitter cloned; the target declares
-#     install and rocks-sync as prerequisites so it also runs standalone.
+#   - The config is installed and nvim-treesitter cloned. provision-parsers is
+#     the lifecycle primitive; build-parsers adds those prerequisites so it
+#     remains useful as a standalone command.
 #
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 
@@ -66,8 +67,8 @@ endif
 # so re-runs only compile what changed.
 #------------------------------------------------------------------------------#
 
-.PHONY: build-parsers #> Compile the canonical treesitter parser set into the hermetic dir
-build-parsers: check-tools check-treesitter-cli install rocks-sync
+.PHONY: provision-parsers
+provision-parsers: check-tools check-treesitter-cli
 	@echo "Provisioning treesitter parsers into ${nvim_treesitter_dir}..."
 	@XDG_CONFIG_HOME="${nvim_xdg_config}" \
 	  XDG_CACHE_HOME="${nvim_xdg_cache}" \
@@ -75,6 +76,9 @@ build-parsers: check-tools check-treesitter-cli install rocks-sync
 	    -u "${NVIM_CONFIG_DIR}/init.lua" \
 	    -c "luafile ${scripts_dir}/install_parsers.lua" \
 	    -c "qa"
+
+.PHONY: build-parsers #> Install prerequisites and compile the canonical parser set
+build-parsers: install rocks-sync provision-parsers
 
 #------------------------------------------------------------------------------#
 # Discard the hermetic parser tree

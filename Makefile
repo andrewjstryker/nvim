@@ -15,6 +15,7 @@ SHELL := bash
 
 .DEFAULT_GOAL := help
 .DELETE_ON_ERROR:
+.SILENT:
 
 #------------------------------------------------------------------------------#
 # Includes
@@ -118,16 +119,19 @@ show:
 # Build & stage
 #------------------------------------------------------------------------------#
 
-# Build: stage code image (Lua, templates, Fennel)
-#   config_env is a normal prerequisite: its PHONY recipe runs every time,
-#   but the cmp guard only updates the file when content changes, so
-#   downstream targets rebuild only when the environment actually changed.
-.PHONY: build #> Build stage/nvim code image (Lua, templates, Fennel)
-build: check-tools ${stage_outputs} ${config_env} verify
+# Assemble is the internal dependency graph.  Public build removes the previous
+# generated tree first, making stage reflect deleted sources and disappearing
+# optional outputs without a separate manifest.
+.PHONY: assemble
+assemble: check-tools ${stage_outputs} ${config_env} runtime verify
 
-# Stage: assemble the complete staging directory (code + runtime dirs)
+.PHONY: build #> Rebuild the complete stage image
+build:
+	@rm -rf "${stage_dir}"
+	@${MAKE} --no-print-directory assemble
+
 .PHONY: stage #> Construct the entire staging directory
-stage: build runtime
+stage: build
 
 #------------------------------------------------------------------------------#
 # Install: sync stage → NVIM_CONFIG_DIR
@@ -163,7 +167,8 @@ $(if ${DRY_RUN},$(info === DRY RUN: nothing will be written ===))
 # for $XDG_CONFIG_HOME/nvim it is: Neovim's own state lives in the cache and
 # data trees, never here.  --chmod makes the installed modes explicit rather
 # than whatever umask the build host happened to have.
-rsync_install = --archive --delete --chmod=D0700,F0600
+rsync_install = --archive --checksum --delete --no-times --omit-dir-times \
+  --chmod=D0700,F0600
 
 ifeq (${DRY_RUN},)
   rsync_install += --itemize-changes
@@ -171,7 +176,7 @@ else
   rsync_install += --dry-run --itemize-changes
 endif
 
-.PHONY: install #> Install staged config into NVIM_CONFIG_DIR (DRY_RUN=1 to report)
+.PHONY: install #> Install staged payload into NVIM_CONFIG_DIR (DRY_RUN=1 to report)
 install: stage
 ifeq (${DRY_RUN},)
 	@mkdir -p "${install_dir}"
@@ -187,15 +192,19 @@ else
 	fi
 endif
 
-# ../SPEC.md no longer lists these -- a dry run is the DRY_RUN mode.  ../config
-# still asks every repository for them, so they stay as delegators: one recipe
-# per action, no second implementation to drift.
+# ../SPEC.md no longer lists these -- a dry run is the DRY_RUN mode. They remain
+# compatibility delegators for direct callers: one recipe per action, no second
+# implementation to drift.
 .PHONY: install-dry-run #> Report what install would change
 install-dry-run:
 	@${MAKE} --no-print-directory install DRY_RUN=1
 
+.PHONY: preview #> Stage, then report files install would create or overwrite
+preview:
+	@${MAKE} --no-print-directory install DRY_RUN=1
+
 #------------------------------------------------------------------------------#
-# Sync: install + sync all plugins from rocks.toml
+# Sync: provision all plugins from rocks.toml
 #
 # Pipeline:
 #   1. stage + install  — copy config to NVIM_CONFIG_DIR
@@ -225,18 +234,26 @@ install-dry-run:
 # substitution, authoritative by the probing policy, and invisible to the user.
 #------------------------------------------------------------------------------#
 
-.PHONY: sync #> Build, install, and sync all plugins from rocks.toml
+.PHONY: sync #> Sync plugins and parsers with installed configuration
 ifeq (${DRY_RUN},)
-sync: check-tools install rocks-sync build-parsers
+sync: check-tools
+	$(if ${DESTDIR},$(error sync cannot be staged: plugins and parsers \
+	  are live state outside DESTDIR))
+	@${MAKE} --no-print-directory rocks-sync provision-parsers
 else
 # rocks-sync clones and compiles into the hermetic tree, and build-parsers
 # compiles treesitter grammars into it.  Both write outside this working tree
 # and neither has a dry run of its own, so a dry run says what it would do and
 # stops -- rather than "reporting" by doing it.
-sync: check-tools install
+sync: check-tools
+	$(if ${DESTDIR},$(error sync cannot be staged: plugins and parsers \
+	  are live state outside DESTDIR))
 	@printf 'would sync rocks into %s/\n'    "${NVIM_ROCKS_DIR}"
 	@printf 'would build parsers into %s/\n' "${nvim_treesitter_dir}"
 endif
+
+.PHONY: check #> Build and validate the Neovim staged declaration
+check: stage
 
 #------------------------------------------------------------------------------#
 # Clean / uninstall
@@ -262,7 +279,7 @@ clean-cache:
 # nothing else — the hermetic rocks tree, treesitter parsers, and every other
 # cache stay put, because they are expensive to rebuild and are not
 # configuration.  Use uninstall-cache to take those too.
-.PHONY: uninstall #> Remove installed configuration (DRY_RUN=1 to report only)
+.PHONY: uninstall #> Remove installed payload (DRY_RUN=1 to report only)
 uninstall:
 	@if [ -d "${install_dir}" ]; then \
 	  $(if ${DRY_RUN}, \
@@ -279,5 +296,12 @@ uninstall-dry-run:
 
 .PHONY: uninstall-cache #> Remove installed config + hermetic cache
 uninstall-cache: uninstall clean-cache
+
+# Apply is sequential even under make -j.
+.PHONY: apply #> Install, then synchronize
+apply:
+	@${MAKE} --no-print-directory install
+	$(if ${DESTDIR},@printf 'sync skipped for staged apply\n',\
+	  @${MAKE} --no-print-directory sync)
 
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
