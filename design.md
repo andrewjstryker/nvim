@@ -21,7 +21,7 @@ that are known at build time.
 Key decisions:
 
 * **Shell**: Bash (strict mode)
-* **Stage (build.mk)**: prepares *repo-managed artifacts only* under `stage/nvim/`
+* **Stage (build.mk)**: prepares the XDG image under `stage/config/nvim/`
 * **Seed (seed.mk)**: bootstraps toml-edit via `luarocks`, then syncs all
   plugins from `rocks.toml` using a host Lua script (no Neovim invocation)
 * **Install**: copies staged artifacts into `NVIM_CONFIG_DIR`
@@ -176,9 +176,10 @@ repo/
 │  │       └─ writing.lua
 │  ├─ after/ ftplugin/ colors/ plugin/   # optional runtime dirs
 ├─ build/
-│  ├─ bin/       # vendored tools (e.g., fennel)
 │  ├─ m4/        # static m4 macros (constants.m4, paths.m4, common.m4)
 │  └─ scripts/   # build-time helper scripts (e.g., rocks_sync.lua)
+├─ vendor/
+│  └─ build/fennel/  # pinned third-party compiler; never installed
 ├─ stage/        # build outputs (gitignored)
 │  ├─ nvim/      # assembled config image
 │  └─ m4/        # generated m4 macros (config_env.m4)
@@ -211,7 +212,7 @@ is the loader that requires each concern file.
 ### Plugin manifest
 
 `rocks.toml` is the **single canonical plugin manifest**. It lives at
-`nvim/rocks.toml` in the source tree and is copied to `stage/nvim/rocks.toml`
+`src/config/nvim/rocks.toml` is copied to `stage/config/nvim/rocks.toml`
 during build. There is no second manifest.
 
 ---
@@ -252,7 +253,7 @@ There are two layers of m4 usage:
    * e.g., `NV_M4_SITE_DIR`, `NV_M4_OPT_DIR`, `NV_M4_START_DIR`,
      `NV_M4_ROCKS_RTP` (in `paths.m4`)
 
-2. **Generated macros** written during the build to `stage/m4/config_env.m4`
+2. **Generated macros** written during the build to `stage/.m4/config_env.m4`
 
    * `NV_M4_NVIM_ROCKS_DIR`
    * `NV_M4_NVIM_CONFIG_DIR`
@@ -315,13 +316,13 @@ resolution via `vim.fn.glob()`. This falls under probing policy §4
 
 ---
 
-## Environment capture (`stage/m4/config_env.m4`)
+## Environment capture (`stage/.m4/config_env.m4`)
 
 Some build inputs are derived from the user's environment and cannot be tracked
 purely via Make's timestamp-based dependency graph (because the environment can
 change while file mtimes do not).
 
-To address this, `project.mk` generates `stage/m4/config_env.m4` that captures
+To address this, `project.mk` generates `stage/.m4/config_env.m4` that captures
 the derived install/cache paths as m4 symbols.
 
 **Idempotence rule for env capture:** the generator must not rewrite the file if
@@ -349,7 +350,7 @@ ${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua.m4 ${m4_static_src} | sta
 ```
 
 The m4 command uses two `-I` flags to search both `build/m4/` (static macros)
-and `stage/m4/` (generated macros), so `m4_include('config_env.m4')` in
+and `stage/.m4/` (generated macros), so `m4_include('config_env.m4')` in
 `paths.m4` resolves regardless of which directory it lives in.
 
 ---
@@ -400,7 +401,7 @@ phases.
 
 ### Preparation (repo-managed artifacts only)
 
-`build.mk` produces `stage/nvim/` containing only artifacts derived from the
+`build.mk` produces `stage/config/nvim/` containing only artifacts derived from the
 repo:
 
 * copy top-level runtime files (`init.lua`, `rocks.toml`)
@@ -411,7 +412,7 @@ No network access, no third-party clones, and no runtime state appear in stage.
 
 ### Installation (destination-specific)
 
-`install` copies `stage/nvim/** → NVIM_CONFIG_DIR/**` via rsync.
+`install` copies `stage/config/nvim/** → NVIM_CONFIG_DIR/**` via rsync.
 
 ### Sync (build-time plugin installation)
 
@@ -506,7 +507,7 @@ their destination roots.
 
 #### What the treesitter checks assert
 
-The `test` tier adds two post-install checks, both stated as **behavior a user
+The `test` tier adds two post-sync checks, both stated as **behavior a user
 depends on**, never as file layout:
 
 * **`ts_works`** — does treesitter work for every language the build promised?
@@ -642,13 +643,13 @@ non-interactive by nature.
 ```mermaid
 flowchart TD
   subgraph Prep["Preparation (repo-managed artifacts)"]
-    E["env-capture: stage/m4/config_env.m4"]
-    E -->|"normal prereq (mtime)"| B["build.mk: stage/nvim (copy + m4 + fennel)"]
+    E["env-capture: stage/.m4/config_env.m4"]
+    E -->|"normal prereq (mtime)"| B["build.mk: stage/config/nvim (copy + m4 + fennel)"]
     B --> V["verify: grep for unexpanded NV_M4_ tokens"]
   end
 
   subgraph Install["Installation (destination-specific)"]
-    I["install: stage/nvim → NVIM_CONFIG_DIR"]
+    I["install: stage/config/nvim → NVIM_CONFIG_DIR"]
     LR["luarocks_config → NVIM_CACHE_DIR/rocks/luarocks/config.lua"]
     BT["bootstrap: luarocks install toml-edit"]
     SY["rocks_sync.lua: parse rocks.toml, install all plugins"]
@@ -661,7 +662,7 @@ flowchart TD
 
   subgraph Test["Test (same pipeline, different roots)"]
     TF["test-fast: build + install (no network)"]
-    T["test: full sync (network required)"]
+    T["test: full apply (network required)"]
     TF --> TS["nvim --headless smoke check"]
     T --> TS
   end
@@ -669,7 +670,7 @@ flowchart TD
 
 Notes:
 
-* The test pipeline runs the **same** `make sync` target, just with overridden
+* The test pipeline runs the **same** `make apply` target, just with overridden
   `NVIM_CONFIG_DIR` and `NVIM_CACHE_DIR`. Stage is rebuilt with temp paths so
   m4-rendered files contain the correct roots.  The temp directory structure
   is `$tmp/config/nvim` and `$tmp/cache/nvim` so that XDG overrides produce
@@ -689,7 +690,7 @@ Notes:
 
 ---
 
-## Installed runtime (post-install + sync)
+## Installed runtime (sync)
 
 ```
 NVIM_CONFIG_DIR/
@@ -752,7 +753,7 @@ For normal build steps (copying files, rendering templates, compiling Fennel),
 the system relies on **Make's standard dependency and timestamp semantics**.
 
 Explicit content comparison (`cmp`) is used **only** for environment capture
-(`stage/m4/config_env.m4`) because environment changes cannot be modeled by
+(`stage/.m4/config_env.m4`) because environment changes cannot be modeled by
 file mtimes alone.
 
 This ensures:
@@ -771,12 +772,13 @@ Human-facing `.PHONY` targets are intentionally few and stable:
 | ------------------ | ------------------------------------------------ |
 | `help`             | list available commands                          |
 | `show`             | display resolved paths and variables             |
-| `build`            | build `stage/nvim/` code image (Lua + m4 + fnl)  |
+| `build`            | build `stage/config/nvim/` image (Lua + m4 + fnl) |
 | `stage`            | prepare staged artifacts (code + runtime + seeds) |
 | `install`          | install staged artifacts into `NVIM_CONFIG_DIR`  |
-| `sync`             | install + sync all plugins from `rocks.toml`     |
+| `sync`             | sync plugins and parsers for installed config    |
+| `apply`            | install configuration, then run `sync`           |
 | `test-fast`        | quick smoke test: build + install (no network)   |
-| `test`             | full smoke test: sync + verify Neovim starts     |
+| `test`             | full smoke test: apply + verify Neovim starts    |
 | `verify`           | check staged Lua for unexpanded m4 tokens (runs as part of `build`) |
 | `clean`            | remove `stage/`                                  |
 | `uninstall`        | remove installed config (requires `FORCE=1`)     |

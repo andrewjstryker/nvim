@@ -6,7 +6,7 @@ The system builds the runtime *before* install so Neovim loads **pure Lua**
 with no dynamic discovery or probing.
 
 If all required tools are present,
-**`make sync` always yields a working configuration.**
+**`make apply` always yields a working configuration.**
 
 ---
 
@@ -37,12 +37,12 @@ and verification steps.
 ```bash
 git clone <this repo>
 cd <repo>
-make sync
+make apply
 ```
 
 This:
 
-1. builds the stage image (`stage/nvim/`)
+1. builds the stage image (`stage/config/nvim/`)
 2. installs the config into `NVIM_CONFIG_DIR`
 3. bootstraps `toml-edit` into the hermetic rocks tree
 4. parses `rocks.toml` and installs all plugins (native rocks via `luarocks`,

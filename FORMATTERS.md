@@ -113,7 +113,7 @@ Re-probe and check the rendered config:
 
 ```sh
 make sync
-grep command stage/nvim/lua/plugins/formatting.lua
+grep command stage/config/nvim/lua/plugins/formatting.lua
 ```
 
 You should see one line per installed formatter, with the absolute path
