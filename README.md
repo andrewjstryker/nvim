@@ -5,8 +5,13 @@ powered by a **Makefile DAG** and a **fully isolated Rocks (LuaRocks) tree**.
 The system builds the runtime *before* install so Neovim loads **pure Lua**
 with no dynamic discovery or probing.
 
-If all required tools are present,
-**`make apply` always yields a working configuration.**
+The common stage/install/uninstall lifecycle is supplied by the repository-local
+`protocol/` unit. It is copied into the tree today at the path intended for a
+future submodule.
+
+If all required tools are present, `make install` followed by `make sync`
+yields a working configuration. The collection driver exposes that ordered
+operation as `home apply nvim`.
 
 ---
 
@@ -37,7 +42,8 @@ and verification steps.
 ```bash
 git clone <this repo>
 cd <repo>
-make apply
+make install
+make sync
 ```
 
 This:
@@ -86,13 +92,16 @@ make test
 ### Remove the config only
 
 ```bash
-make uninstall FORCE=1
+make uninstall
 ```
+
+Uninstall is conservative: it removes only files that still match the current
+manifest and leaves locally modified files in place.
 
 ### Remove the config *and* hermetic Rocks cache
 
 ```bash
-make uninstall-cache FORCE=1
+make uninstall-cache
 ```
 
 ---

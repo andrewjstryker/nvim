@@ -1,0 +1,2 @@
+FIXTURE=rendered
+export FIXTURE

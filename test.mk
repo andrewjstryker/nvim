@@ -48,12 +48,14 @@
 # Neither looks at where a parser or query file landed; see design.md §2.
 #
 # Both use temp directories so the user's real config is never touched.
-# Stage is clobbered with temp-path artifacts; the next real `make sync`
+# Stage is left containing temp-path artifacts; the next real `make install`
 # will cheaply re-stage with real paths.
 #------------------------------------------------------------------------------#
 
-# Shared helper: set up temp dirs, run a make target, then smoke-test Neovim.
-# Usage: $(call run_smoke,<make-target>[,<test scripts>])
+# Shared helper: set up temp dirs, run one or more ordered make targets, then
+# smoke-test Neovim. Each sub-Make is a deliberate, shallow build evaluation
+# with the temporary installation context.
+# Usage: $(call run_smoke,<ordered-make-targets>[,<test scripts>])
 #
 # The optional second argument is a space-separated list of Lua test scripts
 # (see test/) run headless under the freshly installed config; each must exit
@@ -71,9 +73,11 @@ define run_smoke
 	echo "Smoke test using:"; \
 	echo "  NVIM_CONFIG_DIR=$$tmp_cfg"; \
 	echo "  NVIM_CACHE_DIR=$$tmp_cache"; \
-	$(MAKE) $(1) \
-	  NVIM_CONFIG_DIR="$$tmp_cfg" \
-	  NVIM_CACHE_DIR="$$tmp_cache"; \
+	for target in $(1); do \
+	  $(MAKE) "$$target" \
+	    NVIM_CONFIG_DIR="$$tmp_cfg" \
+	    NVIM_CACHE_DIR="$$tmp_cache"; \
+	done; \
 	echo "Verifying Neovim starts cleanly..."; \
 	smoke_err="$$tmp_root/smoke_stderr.log"; \
 	XDG_CONFIG_HOME="$$tmp_root/config" \
@@ -113,9 +117,9 @@ endef
 test-fast:
 	$(call run_smoke,install)
 
-.PHONY: test #> Full smoke test: apply, then check treesitter works, installs, and keymaps (network)
+.PHONY: test #> Full smoke test: install and sync, then check runtime behavior (network)
 test:
-	$(call run_smoke,apply,$(abspath test/ts_works.lua) $(abspath test/ts_install.lua) $(abspath test/keymaps.lua))
+	$(call run_smoke,install sync,$(abspath test/ts_works.lua) $(abspath test/ts_install.lua) $(abspath test/keymaps.lua))
 
 #------------------------------------------------------------------------------#
 # Pre-install keymap collision check
@@ -131,7 +135,7 @@ test:
 #------------------------------------------------------------------------------#
 
 .PHONY: check-keymaps #> Detect keymap collisions before install (needs synced plugins)
-check-keymaps: check-tools
+check-keymaps: check-stage-tools check-install-tools
 	@echo "Checking for keymap collisions..."
 	@tmp_root="$$(mktemp -d)"; \
 	tmp_cfg="$$tmp_root/config/nvim"; \

@@ -28,7 +28,8 @@ Key decisions:
 * **Test**: performs a complete installation and sync using temporary directory
   overrides
 * **Templating**: `*.lua.m4 → *.lua` at build time
-* **Fennel**: compiled at build time only (`*.fnl → *.lua`)
+* **Fennel**: optional `*.fnl → *.lua` compilation through the protocol's
+  claimed-source/output seam
 * **Isolation**: plugins install into a hermetic LuaRocks tree derived from
   `NVIM_CACHE_DIR` (never system Lua)
 * **M4 discipline**: all build-time m4 symbols are prefixed with `NV_M4_`
@@ -179,7 +180,7 @@ repo/
 │  ├─ m4/        # static m4 macros (constants.m4, paths.m4, common.m4)
 │  └─ scripts/   # build-time helper scripts (e.g., rocks_sync.lua)
 ├─ vendor/
-│  └─ build/fennel/  # pinned third-party compiler; never installed
+│  └─ build/fennel/  # pinned compiler script; never installed
 ├─ stage/        # build outputs (gitignored)
 │  ├─ nvim/      # assembled config image
 │  └─ m4/        # generated m4 macros (config_env.m4)
@@ -406,7 +407,7 @@ repo:
 
 * copy top-level runtime files (`init.lua`, `rocks.toml`)
 * render `*.lua.m4 → *.lua`
-* compile `*.fnl → *.lua`
+* compile claimed `*.fnl → *.lua`
 
 No network access, no third-party clones, and no runtime state appear in stage.
 
@@ -447,8 +448,8 @@ find a fully populated environment on first boot.
 
 #### Treesitter parsers
 
-Treesitter parsers **are** installed at build time. `make sync` clones
-`nvim-treesitter` (via rocks_sync) and then runs `build-parsers`, which
+Treesitter parsers **are** installed during synchronization. `make sync` clones
+`nvim-treesitter` (via rocks_sync) and then runs `provision-parsers`, which
 executes `build/scripts/install_parsers.lua` under headless Neovim to install
 the canonical set in `lua/config/parsers.lua` — parsers *and* their queries —
 into the hermetic treesitter dir. A parser that cannot be installed **fails
@@ -468,7 +469,7 @@ nodes per capture id, so every markdown injection raises `attempt to call
 method 'range' (a nil value)`. `main` requires the `tree-sitter` CLI
 (≥ `TREE_SITTER_MIN_VERSION`) to compile parsers; `environment.mk` discovers it
 as `TREE_SITTER` (host discovery, §1) and `check-treesitter-cli` gates
-`build-parsers` on it. The guard is scoped to that target, so `build`,
+`provision-parsers` on it. The guard is scoped to that target, so `build`,
 `install`, and `test-fast` still work on a host without the CLI.
 
 The cost of this arrangement is a C compiler and the tree-sitter CLI at build
@@ -644,7 +645,7 @@ non-interactive by nature.
 flowchart TD
   subgraph Prep["Preparation (repo-managed artifacts)"]
     E["env-capture: stage/.m4/config_env.m4"]
-    E -->|"normal prereq (mtime)"| B["build.mk: stage/config/nvim (copy + m4 + fennel)"]
+    E -->|"normal prereq (mtime)"| B["build.mk: stage/config/nvim (copy + m4 + claimed Fennel)"]
     B --> V["verify: grep for unexpanded NV_M4_ tokens"]
   end
 
@@ -662,7 +663,7 @@ flowchart TD
 
   subgraph Test["Test (same pipeline, different roots)"]
     TF["test-fast: build + install (no network)"]
-    T["test: full apply (network required)"]
+    T["test: install + sync (network required)"]
     TF --> TS["nvim --headless smoke check"]
     T --> TS
   end
@@ -670,9 +671,9 @@ flowchart TD
 
 Notes:
 
-* The test pipeline runs the **same** `make apply` target, just with overridden
-  `NVIM_CONFIG_DIR` and `NVIM_CACHE_DIR`. Stage is rebuilt with temp paths so
-  m4-rendered files contain the correct roots.  The temp directory structure
+* The test pipeline runs `make install` and `make sync` in shallow sub-Makes
+  with overridden `NVIM_CONFIG_DIR` and `NVIM_CACHE_DIR`. Stage is rebuilt with
+  temp paths so m4-rendered files contain the correct roots. The temp directory structure
   is `$tmp/config/nvim` and `$tmp/cache/nvim` so that XDG overrides produce
   correct `stdpath()` values.
 * The sync script runs under the host Lua interpreter, not Neovim. It uses
@@ -685,8 +686,7 @@ Notes:
 * Env capture uses content comparison (`cmp -s`) to avoid spurious timestamp
   churn. Downstream m4 targets use `config_env` as a **normal prerequisite**
   so that environment changes propagate through Make's mtime graph.
-* `verify` runs as part of `build` — every build, install, sync, and test
-  automatically checks for unexpanded m4 tokens. It can also be run standalone.
+* `verify` extends the explicit `check` surface and can also be run standalone.
 
 ---
 
@@ -749,7 +749,8 @@ runtime `env.lua` wires `package.path`, `package.cpath`, and Neovim's
 
 ## Idempotence and change detection
 
-For normal build steps (copying files, rendering templates, compiling Fennel),
+For normal build steps (copying files, rendering templates, and compiling
+Fennel),
 the system relies on **Make's standard dependency and timestamp semantics**.
 
 Explicit content comparison (`cmp`) is used **only** for environment capture
@@ -772,16 +773,15 @@ Human-facing `.PHONY` targets are intentionally few and stable:
 | ------------------ | ------------------------------------------------ |
 | `help`             | list available commands                          |
 | `show`             | display resolved paths and variables             |
-| `build`            | build `stage/config/nvim/` image (Lua + m4 + fnl) |
-| `stage`            | prepare staged artifacts (code + runtime + seeds) |
+| `build`            | compatibility alias for `stage`                   |
+| `stage`            | prepare the complete staged manifest              |
 | `install`          | install staged artifacts into `NVIM_CONFIG_DIR`  |
 | `sync`             | sync plugins and parsers for installed config    |
-| `apply`            | install configuration, then run `sync`           |
 | `test-fast`        | quick smoke test: build + install (no network)   |
-| `test`             | full smoke test: apply + verify Neovim starts    |
-| `verify`           | check staged Lua for unexpanded m4 tokens (runs as part of `build`) |
+| `test`             | full smoke test: install + sync + runtime checks |
+| `verify`           | check staged Lua for unexpanded m4 tokens        |
 | `clean`            | remove `stage/`                                  |
-| `uninstall`        | remove installed config (requires `FORCE=1`)     |
+| `uninstall`        | conservatively remove the installed manifest     |
 | `uninstall-cache`  | remove config + hermetic rocks cache             |
 
 All real work is expressed as **file targets and pattern rules**.
