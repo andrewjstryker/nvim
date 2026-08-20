@@ -9,6 +9,7 @@ claimed_source=${fixture}/src/config/claimed.upper
 vendor_tool=${fixture}/vendor/bin/vendor-tool
 m4_context=${fixture}/stage/.build/m4-context
 test_root=$(mktemp -d)
+tab=$(printf '\t')
 
 restore() {
 	chmod u+x,go-rwx "${rendered_source}"
@@ -19,6 +20,7 @@ restore() {
 	rm -f "${m4_context}"
 	rm -f "${fixture}/stage/config/claimed"
 	rm -f "${fixture}/stage/config/context.conf"
+	rm -f "${fixture}/stage/config/runtime-name.conf"
 	rm -rf "${test_root}"
 }
 trap restore EXIT HUP INT TERM
@@ -26,8 +28,7 @@ trap restore EXIT HUP INT TERM
 # Public installation roots use ordinary defaults, but an explicitly empty
 # value is invalid and fails before any lifecycle target can use it.
 for variable in \
-	XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME BIN_DIR \
-	CONTEXT_INPUT; do
+	XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME BIN_DIR; do
 	if make --no-print-directory -C "${fixture}" show "$variable=" \
 	     >"${test_root}/empty-path" 2>&1; then
 		printf 'expected an empty %s to fail\n' "$variable" >&2
@@ -35,6 +36,24 @@ for variable in \
 	fi
 	grep -q "$variable must not be empty" "${test_root}/empty-path"
 done
+
+# Required render inputs are staging requirements, not parse requirements.
+# Diagnostics and cleanup remain available and show names a missing value;
+# stage fails before pruning or otherwise mutating existing output.
+make --no-print-directory -C "${fixture}" help CONTEXT_INPUT= >/dev/null
+missing_show=$(make --no-print-directory -C "${fixture}" show CONTEXT_INPUT=)
+printf '%s\n' "${missing_show}" | grep -q 'CONTEXT_INPUT.*(MISSING)'
+make --no-print-directory -C "${fixture}" clean CONTEXT_INPUT=
+mkdir -p "${fixture}/stage/config"
+printf stale > "${fixture}/stage/config/stale"
+if make --no-print-directory -C "${fixture}" stage CONTEXT_INPUT= \
+	>"${test_root}/missing-input" 2>&1; then
+	printf 'expected a missing required input to fail staging\n' >&2
+	exit 1
+fi
+grep -q 'Missing required inputs needed to stage: CONTEXT_INPUT' \
+	"${test_root}/missing-input"
+test -f "${fixture}/stage/config/stale"
 
 make --no-print-directory -C "${fixture}" clean
 make --no-print-directory -j4 -C "${fixture}" stage
@@ -49,6 +68,8 @@ test "$(sed -n '2p' "${fixture}/stage/config/context.conf")" = \
     required-context
 test "$(sed -n '3p' "${fixture}/stage/config/context.conf")" = \
     optional-context
+test "$(cat "${fixture}/stage/config/runtime-name.conf")" = \
+    'XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-'"${HOME}"'/.config}"'
 test -f "${fixture}/stage/data/example"
 test -f "${fixture}/stage/config/env.d/fixture.sh"
 test -x "${fixture}/stage/bin/rendered-tool"
@@ -64,6 +85,13 @@ for variable in \
 done
 ! grep -q '^ *PATH=' "${m4_context}"
 make --no-print-directory -C "${fixture}" check-required-export
+inspection=$(make --no-print-directory -C "${fixture}" inspect)
+printf '%s\n' "${inspection}" | grep -q \
+	"^file${tab}0600${tab}stage/config/static.conf${tab}config/static.conf${tab}${HOME}/.config/static.conf$"
+custom_inspection=$(make --no-print-directory -C "${fixture}" inspect \
+	FIXTURE_CONFIG_ROOT="${test_root}/custom-config")
+printf '%s\n' "${custom_inspection}" | grep -q \
+	"^file${tab}0600${tab}stage/config/static.conf${tab}config/static.conf${tab}${test_root}/custom-config/static.conf$"
 
 # The phony reconciliation action leaves an identical real context untouched,
 # so normal m4 targets remain current. A changed context invalidates them.
@@ -82,6 +110,14 @@ test "$(cat "${fixture}/stage/config/rendered.conf")" = changed
 make --no-print-directory -C "${fixture}" stage
 test "$(cat "${fixture}/stage/config/rendered.conf")" = rendered
 
+# Render values are transported through the context rather than embedded as
+# shell literals. An apostrophe is data, not a recipe delimiter.
+make --no-print-directory -C "${fixture}" stage \
+	OPTIONAL_CONTEXT="builder's context"
+test "$(sed -n '3p' "${fixture}/stage/config/context.conf")" = \
+	"builder's context"
+make --no-print-directory -C "${fixture}" stage
+
 # Required inputs enter the render-variable set automatically; concerns add
 # optional render values through m4_vars.
 sleep 1
@@ -96,6 +132,14 @@ make --no-print-directory -C "${fixture}" stage
 
 # Each lifecycle phase checks only its declared tools. A failed stage preflight
 # happens before prune, so even parallel Make cannot mutate the staged tree.
+if make --no-print-directory -C "${fixture}" stage M4= \
+	 >"${test_root}/protocol-stage-tool" 2>&1; then
+	printf 'expected the protocol m4 requirement to survive immediate caller lists\n' >&2
+	exit 1
+fi
+grep -q 'Missing tools needed to stage: M4' \
+	"${test_root}/protocol-stage-tool"
+
 printf stale > "${fixture}/stage/config/stale"
 if make --no-print-directory -j4 -C "${fixture}" stage STAGE_TOOL= \
      >"${test_root}/stage-tool" 2>&1; then
@@ -121,6 +165,14 @@ rm -f "${fixture}/stage/config/stale"
 
 make --no-print-directory -C "${fixture}" stage INSTALL_TOOL= SYNC_TOOL=
 make --no-print-directory -C "${fixture}" sync STAGE_TOOL= INSTALL_TOOL=
+
+if make --no-print-directory -C "${fixture}" install RSYNC= \
+	     DESTDIR="${test_root}" >"${test_root}/protocol-install-tool" 2>&1; then
+	printf 'expected the protocol rsync requirement to survive immediate caller lists\n' >&2
+	exit 1
+fi
+grep -q 'Missing tools needed to install: RSYNC' \
+	"${test_root}/protocol-install-tool"
 
 if make --no-print-directory -C "${fixture}" install INSTALL_TOOL= \
      DESTDIR="${test_root}" >"${test_root}/install-tool" 2>&1; then
@@ -193,6 +245,19 @@ test ! -e "${fixture}/stage/config/stale"
 test -f "${fixture}/stage/config/claimed"
 test -f "${fixture}/stage/.build/input"
 test -f "${fixture}/stage/config/.private/input"
+
+# Validation runs after concern-added stage prerequisites, so a successful
+# recipe cannot smuggle an undeclared public file into installation.
+if make --no-print-directory -C "${fixture}" stage ROGUE_OUTPUT=1 \
+	>"${test_root}/rogue-output" 2>&1; then
+	printf 'expected undeclared staged output to fail validation\n' >&2
+	exit 1
+fi
+grep -q 'undeclared staged output: stage/config/rogue.conf' \
+	"${test_root}/rogue-output"
+test -f "${fixture}/stage/config/rogue.conf"
+make --no-print-directory -C "${fixture}" stage
+test ! -e "${fixture}/stage/config/rogue.conf"
 
 # Preview and install use the same namespace transfers. Uninstall removes only
 # destinations whose bytes and executable declaration still match the manifest.

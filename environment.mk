@@ -20,6 +20,11 @@
 #
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 
+# Concern recipes and smoke tests use Bash's EXIT trap and pipefail. The shared
+# protocol preserves this caller policy and its portable recipes run unchanged.
+SHELL := bash
+.SHELLFLAGS := --noprofile --norc -euo pipefail -c
+
 #------------------------------------------------------------------------------#
 #
 # XDG and installation locations
@@ -67,10 +72,9 @@ LUAROCKS ?= $(shell command -v luarocks)
 #
 # Treesitter capability discovery (host discovery + reasonable check)
 #
-# Treesitter is an OPTIONAL concern, discovered exactly like a formatter: if the
-# host cannot compile parsers, the build stages no treesitter configuration and
-# says so.  Neovim without treesitter falls back to regex syntax and remains
-# usable, so a host missing these tools is a WARNING, never a build failure.
+# Treesitter parsers are a synchronization invariant. Discovery resolves the
+# compiler tools here; the protocol's sync preflight rejects missing values
+# before plugin or parser provisioning begins.
 #
 # Compiling one parser needs two things, so the capability is their conjunction:
 #
@@ -117,19 +121,10 @@ endif
 # make predefines CC with origin "default", so `CC ?= ...` would never assign.
 C_COMPILER ?= $(shell command -v cc || command -v gcc || command -v clang)
 
-# The capability gate.  Non-empty only when a parser can actually be compiled.
-# Consumed by:
-#   * project.mk    — stamps NV_M4_TREE_SITTER, which decides whether
-#                     plugins/treesitter.lua and the markdown rendering in
-#                     plugins/writing.lua are staged with any code at all
-#   * treesitter.mk — build-parsers warns and no-ops instead of provisioning
-#   * test.mk       — the treesitter checks are skipped rather than failed
-TREESITTER_CAPABLE := $(if $(and $(strip ${TREE_SITTER}),$(strip ${C_COMPILER})),yes,)
-
 # Optional formatter binaries (conform.nvim dispatches to whatever is on PATH
-# at build time).  Empty → the formatter is absent; project.mk omits the
+# at build time). Empty → the formatter is absent; project.mk omits the
 # corresponding m4 define and the generated formatting.lua drops any filetype
-# mapping that depends on it.  Install → re-run `make sync` to re-probe.
+# mapping that depends on it. Install → re-run `make install` to re-probe.
 #
 # Each variable holds the absolute path of the command conform should invoke.
 # For standalone formatters, that is the formatter binary itself.  For
@@ -221,7 +216,6 @@ define toolset_summary
   LUAROCKS.................... ${LUAROCKS}
   TREE_SITTER................. ${TREE_SITTER}
   C_COMPILER.................. ${C_COMPILER}
-  TREESITTER_CAPABLE.......... ${TREESITTER_CAPABLE}
   RSYNC....................... ${RSYNC}
   GIT......................... ${GIT}
   AWK......................... ${AWK}

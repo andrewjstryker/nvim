@@ -17,7 +17,7 @@
 -- set is a BUILD-TIME INVARIANT, so runtime assumes it holds.
 --
 --   * config.parsers is the canonical set.  `make sync` provisions it via
---     build-parsers, which fails the build if any parser cannot be installed.
+--     sync, which fails if any parser cannot be installed.
 --   * Adding a language is a build-time act: add it to config.parsers and
 --     re-run `make sync`.  There is deliberately no install-on-use path --
 --     `master`'s auto_install was the runtime half of a build-time concern, and
@@ -26,7 +26,7 @@
 --     provisioning step that already ran.
 --   * The tree-sitter CLI that `main` shells out to is likewise a build-time
 --     prerequisite, discovered as TREE_SITTER in environment.mk and enforced by
---     `make build-parsers`.  Runtime does not re-check it.
+--     `make sync`.  Runtime does not re-check it.
 
 local ts = require("nvim-treesitter")
 local env = require("config.env")
@@ -45,7 +45,7 @@ local env = require("config.env")
 -- resolves the runtimepath once at startup and drops entries that are not there
 -- yet, so on a freshly cleaned tree the install dir would stay invisible for the
 -- whole session: parsers install successfully and then fail to load, which is
--- exactly what `make clean-parsers && make build-parsers` does in one process.
+-- exactly what `make clean-parsers && make sync` does in one process.
 vim.fn.mkdir(env.treesitter_dir .. "/parser", "p")
 
 ts.setup({ install_dir = env.treesitter_dir })

@@ -10,11 +10,14 @@
 PROTOCOL_MK  ?= ../protocol/protocol.mk
 PROTOCOL_BIN ?= $(patsubst %/,%,$(dir ${PROTOCOL_MK}))/bin
 
-SHELL         := /bin/sh
-.SHELLFLAGS   := -eu -c
+ifeq ($(origin SHELL),default)
+SHELL := /bin/sh
+endif
+ifeq ($(origin .SHELLFLAGS),default)
+.SHELLFLAGS := -eu -c
+endif
 .DEFAULT_GOAL := help
 .DELETE_ON_ERROR:
-.SECONDEXPANSION:
 .SILENT:
 
 define nl
@@ -35,7 +38,7 @@ path_vars := \
   XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME BIN_DIR
 
 require_nonempty = $(if $(strip $($1)),,$(error $1 must not be empty))
-$(foreach v,HOME ${path_vars} ${required_inputs},$(call require_nonempty,$v))
+$(foreach v,HOME ${path_vars},$(call require_nonempty,$v))
 
 export ${path_vars} ${required_inputs}
 
@@ -49,21 +52,34 @@ m4_vars ?=
 
 # Tool lists contain variable names rather than commands. Wrappers extend the
 # phase in which a tool is first required; the aggregate is diagnostic only.
-stage_tools   = $(if $(strip ${SKIP}),,$(if $(strip ${m4_sources}),M4))
-install_tools = $(if $(strip ${SKIP}),,RSYNC)
-sync_tools    =
-tools         = $(sort ${stage_tools} ${install_tools} ${sync_tools})
+stage_tools   ?=
+install_tools ?=
+sync_tools    ?=
+protocol_stage_tools   = $(if $(strip ${m4_sources}),M4)
+protocol_install_tools = RSYNC
+effective_stage_tools   = ${stage_tools} ${protocol_stage_tools}
+effective_install_tools = ${install_tools} ${protocol_install_tools}
+effective_sync_tools    = ${sync_tools}
+tools = $(sort \
+  ${effective_stage_tools} ${effective_install_tools} ${effective_sync_tools})
 
 missing_tools = $(strip $(foreach v,$1,$(if $(strip $($v)),,$v)))
+missing_inputs = $(strip \
+  $(foreach v,${required_inputs},$(if $(strip $($v)),,$v)))
 
 # Non-file inputs available to ordinary m4 templates. Required staging inputs
 # participate automatically; wrappers extend the set with m4_vars. Every value
-# is defined under its Make variable name and recorded in the renderer context.
+# is recorded under its Make variable name and exposed to templates with an
+# M4_ prefix. Keeping build macros out of the runtime namespace lets a template
+# use ordinary shell/configuration names without capture-and-undefine tricks.
 m4_context_vars = \
   XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME BIN_DIR \
   ${required_inputs}
 m4_render_vars = $(sort ${m4_context_vars} ${m4_vars})
-m4_defines = $(foreach v,${m4_render_vars},--define=${v}='$(${v})')
+
+# Values travel through the reconciled context file. Only their names enter the
+# recipe command line, so shell syntax in a value cannot alter the command.
+m4_define_args = $(foreach v,${m4_render_vars},--define-context=$v=M4_$v)
 
 # Renderer identity and behavior invalidate templates but are not themselves
 # template variables. M4FLAGS is reserved for m4 options such as include paths.
@@ -74,24 +90,32 @@ m4_context_content = \
   $(foreach v,${m4_render_vars},$v=$($v)${nl})
 
 export M4_CONTEXT = ${m4_context_content}
+export M4_CONTEXT_FILE = ${m4_context}
 
 define check_tools
 	$(if $(call missing_tools,$1),\
 	  $(error Missing tools needed to $2: $(call missing_tools,$1)))
 endef
 
+.PHONY: check-required-inputs check-stage-tool-paths
 .PHONY: check-stage-tools check-install-tools check-sync-tools
 .PHONY: check-tools #> Check every declared tool requirement
-check-stage-tools:
-	$(call check_tools,${stage_tools},stage)
+check-required-inputs:
+	$(if ${missing_inputs},\
+	  $(error Missing required inputs needed to stage: ${missing_inputs}))
+
+check-stage-tool-paths:
+	$(call check_tools,${effective_stage_tools},stage)
+
+check-stage-tools: check-required-inputs check-stage-tool-paths
 
 check-install-tools:
-	$(call check_tools,${install_tools},install)
+	$(call check_tools,${effective_install_tools},install)
 
 check-sync-tools:
-	$(call check_tools,${sync_tools},sync)
+	$(call check_tools,${effective_sync_tools},sync)
 
-check-tools: check-stage-tools check-install-tools check-sync-tools
+check-tools: check-stage-tool-paths check-install-tools check-sync-tools
 
 # Source declaration and staged manifest --------------------------------------
 
@@ -134,39 +158,35 @@ m4_context := ${stage}/.build/m4-context
 
 .PHONY: update-m4-context
 update-m4-context: check-stage-tools
-	$(if $(strip ${SKIP}),:,\
-	  $(if $(strip ${m4_sources}),${PROTOCOL_BIN}/m4-context '${m4_context}',:))
+	$(if $(strip ${m4_sources}),${PROTOCOL_BIN}/m4-context '${m4_context}',:)
 
 ${m4_context}: update-m4-context ;
 
 ${stage}/%: ${src}/%.m4 ${m4_context}
-	M4='${M4}' ${PROTOCOL_BIN}/gen '$@' '$<' ${M4FLAGS} ${m4_defines}
+	M4='${M4}' ${PROTOCOL_BIN}/gen '$@' '$<' ${M4FLAGS} ${m4_define_args}
 
 ${stage}/%: ${src}/%
 	mkdir -p '$(@D)'
 	cp -p '$<' '$@'
 
-define stage_directory
-$1:
-	mkdir -p '$$@'
-endef
-
-$(foreach d,${staged_dirs},$(eval $(call stage_directory,$d)))
-
 # Pruning precedes every public staged path. The order-only edge keeps prune's
 # phony status from making otherwise-current outputs rebuild.
 .PHONY: prune
 prune: check-stage-tools
-	${PROTOCOL_BIN}/prune '${stage}' ${staged}
+	${PROTOCOL_BIN}/prune '${stage}' ${stage_expected}
 
-stage_targets = $(if $(strip ${SKIP}),,${staged})
+stage_expected = ${staged}
+stage_expected_dirs = ${staged_dirs}
+stage_expected_files = ${staged_files}
 
-ifneq ($(strip ${staged}),)
-${staged}: | prune
+ifneq ($(strip ${staged_files}),)
+${staged_files}: | prune
 endif
 
 .PHONY: stage #> Prune and incrementally realize the complete staged manifest
-stage: prune $${stage_targets}
+stage: prune ${staged_files}
+	$(if ${staged_dirs},mkdir -p ${staged_dirs},:)
+	${PROTOCOL_BIN}/validate-stage '${stage}' ${stage_expected_dirs} -- ${stage_expected_files}
 
 # Namespace mapping -----------------------------------------------------------
 
@@ -181,17 +201,19 @@ vendor_sources = $(filter-out ${source_excludes},\
       find '${vendor}/$n' -name '.*' -prune -o \
         \( -type f -o -type l \) -print; \
     fi)))
-vendor_files = $(patsubst ${vendor}/%,%,${vendor_sources})
+declared_vendor_files = $(patsubst ${vendor}/%,%,${vendor_sources})
+vendor_files = ${declared_vendor_files}
 
 # The effective manifest is generated first-party output plus mapped vendored
 # payload. vendor/build and all other unmapped vendor paths are build inputs.
 files = ${stage_files} ${vendor_files}
+effective_links = ${links}
 
-config_root = ${XDG_CONFIG_HOME}
-data_root   = ${XDG_DATA_HOME}
-state_root  = ${XDG_STATE_HOME}
-cache_root  = ${XDG_CACHE_HOME}
-bin_root    = ${BIN_DIR}
+config_root ?= ${XDG_CONFIG_HOME}
+data_root   ?= ${XDG_DATA_HOME}
+state_root  ?= ${XDG_STATE_HOME}
+cache_root  ?= ${XDG_CACHE_HOME}
+bin_root    ?= ${BIN_DIR}
 
 namespace_of = $(firstword $(subst /, ,$1))
 relative_of  = $(patsubst $(call namespace_of,$1)/%,%,$1)
@@ -237,21 +259,17 @@ transfer = $(call transfer_stage,$1) $(call transfer_vendor,$1)
 
 .PHONY: preview #> Stage, then report files install would create or overwrite
 preview: stage check-install-tools
-	$(if ${SKIP},printf 'skipped: %s\n' '${SKIP}',\
-	  $(call transfer,--dry-run))
-	$(if ${SKIP},,\
-	  $(foreach l,${links},\
+	$(call transfer,--dry-run)
+	$(foreach l,${effective_links},\
 	    DRY_RUN=1 ${PROTOCOL_BIN}/ensure-link.sh \
-	      '$(call installed_of,$l)' '${DESTDIR}$(call link_of,$l)';${nl}))
+	      '$(call installed_of,$l)' '${DESTDIR}$(call link_of,$l)';${nl})
 
 .PHONY: install #> Stage and install every declared destination namespace
 install: stage check-install-tools
-	$(if ${SKIP},printf 'skipped: %s\n' '${SKIP}',\
-	  $(call transfer,$(if ${DRY_RUN},--dry-run)))
-	$(if ${SKIP},,\
-	  $(foreach l,${links},\
+	$(call transfer,$(if ${DRY_RUN},--dry-run))
+	$(foreach l,${effective_links},\
 	    DRY_RUN='${DRY_RUN}' ${PROTOCOL_BIN}/ensure-link.sh \
-	      '$(call installed_of,$l)' '${DESTDIR}$(call link_of,$l)';${nl}))
+	      '$(call installed_of,$l)' '${DESTDIR}$(call link_of,$l)';${nl})
 
 # Uninstall is deliberately content-conservative. A path belongs to the current
 # manifest, but it is removed only while its installed bytes and mode still
@@ -260,7 +278,7 @@ install: stage check-install-tools
 before-uninstall: stage
 
 remove-installed: before-uninstall
-	$(foreach l,${links},\
+	$(foreach l,${effective_links},\
 	  DRY_RUN='${DRY_RUN}' ${PROTOCOL_BIN}/remove-link.sh \
 	    '$(call installed_of,$l)' '${DESTDIR}$(call link_of,$l)';${nl})
 	$(foreach f,${files},\
@@ -300,18 +318,28 @@ show:
 	$(foreach v,${tools},\
 	  printf '  %-20s %s\n' '$v' '$(if ${$v},${$v},(MISSING))';${nl})
 	$(foreach v,${required_inputs},\
-	  printf '  %-20s %s\n' '$v' '${$v}';${nl})
-	$(if ${SKIP},printf '\nSKIPPED: %s\n' '${SKIP}')
+	  printf '  %-20s %s\n' '$v' '$(if ${$v},${$v},(MISSING))';${nl})
 	printf '\nManifest:\n'
 	$(foreach f,${files},\
 	  printf '  file  %-6s %s\n' '$(call mode_of,$f)' '$(call installed_of,$f)';${nl})
-	$(foreach l,${links},\
+	$(foreach l,${effective_links},\
 	  printf '  link         %s -> %s\n' '$(call link_of,$l)' \
+	    '$(call installed_of,$l)';${nl})
+
+# Stable tab-separated records for the collection driver. Unlike show, every
+# manifest/link record has fixed fields and inspect never stages or mutates.
+.PHONY: inspect #> Emit machine-readable effective manifest records
+inspect:
+	$(foreach f,${files},\
+	  printf 'file\t%s\t%s\t%s\t%s\n' '$(call mode_of,$f)' \
+	    '$(call manifest_of,$f)' '$f' '$(call installed_of,$f)';${nl})
+	$(foreach l,${effective_links},\
+	  printf 'link\t-\t-\t%s\t%s\t%s\n' '$l' '$(call link_of,$l)' \
 	    '$(call installed_of,$l)';${nl})
 
 .PHONY: check #> Stage and run concern-defined checks
 check: stage
-	$(if ${SKIP},printf 'skipped: %s\n' '${SKIP}')
+	:
 
 .PHONY: sync #> Synchronize optional runtime or network state
 sync: check-sync-tools

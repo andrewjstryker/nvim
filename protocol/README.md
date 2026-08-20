@@ -22,25 +22,44 @@ PROTOCOL_MK ?= ../protocol/protocol.mk
 include ${PROTOCOL_MK}
 ```
 
-Inputs which extend the protocol contract are declared before the include.
+All protocol declarations are written before the include: roots, required and
+claimed inputs/outputs, `m4_vars`, phase tool lists, `show_vars`, and `links`.
+Caller-selected `SHELL` and `.SHELLFLAGS` values are also preserved; otherwise
+the protocol defaults to strict portable `sh` recipes.
 Every `required_inputs` value must be nonempty, is exported to recipes, and is
-available to m4 under the same name. Consumers add optional render values with
-`m4_vars += NAME` after the include.
+available to m4 as `M4_NAME` when staging begins. Missing values fail the
+stage preflight before pruning; `help`, `show`, `clean`, and the tool-only
+`check-tools` diagnostic remain available. `show` marks them `(MISSING)`.
 
-Concern values rendered under the same macro name use `m4_vars`. The protocol
-adds each value to the ordinary m4 arguments and to the context automatically:
+Additional rendered values use `m4_vars`. The protocol adds each value to the
+context and exposes it with the `M4_` prefix automatically:
 
 ```make
 ENV_FILE ?= .env
 -include ${ENV_FILE}
 
 m4_vars += ACCOUNT HOST PORT
+
+PROTOCOL_MK ?= ../protocol/protocol.mk
+include ${PROTOCOL_MK}
 ```
 
 Changing a resolved value updates the context and invalidates ordinary m4
 outputs. Changes to comments or formatting in `.env` do not. The protocol also
 defines its persistent XDG variables and `BIN_DIR`; `M4FLAGS` is reserved for
-renderer behavior such as include paths.
+renderer behavior such as include paths. Values reach the renderer without
+shell-literal interpolation, so apostrophes and other shell punctuation are
+ordinary data. Render values may contain any character except newline or NUL.
+
+After the include, a concern may add ordinary file prerequisites and recipes
+for its own derived outputs or lifecycle checks. Protocol declarations do not
+change after inclusion.
+
+The prefix keeps build values separate from ordinary runtime names:
+
+```m4
+XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-M4_XDG_CONFIG_HOME}"
+```
 
 ## Model
 
@@ -65,10 +84,9 @@ concern then owns the file rules, tools, and executable-bit preservation:
 ```make
 claimed_sources = $(call rwildcard,${src}/config/example/,*.fnl)
 claimed_outputs = $(patsubst ${src}/%.fnl,${stage}/%.lua,${claimed_sources})
+stage_tools += FENNEL
 
 include ${PROTOCOL_MK}
-
-stage_tools += FENNEL
 
 ${stage}/config/example/%.lua: ${src}/config/example/%.fnl ${FENNEL}
 	${FENNEL} --compile '$<' > '$@'
@@ -114,7 +132,15 @@ the protocol reports the variable before evaluating lifecycle targets.
 `stage` incrementally realizes the current declaration in one Make graph. Every
 public staged path has an order-only dependency on pruning, so obsolete outputs
 are removed before any transformation runs without making current outputs
-rebuild. `clean` removes the complete staged tree.
+rebuild. Once all concern-added prerequisites finish, stage validates that the
+public tree exactly matches declared ordinary and claimed outputs; undeclared
+or missing output fails before transfer. `clean` removes the complete staged
+tree.
+
+`inspect` exposes that effective state to the collection driver as stable
+tab-separated `file` and `link` records. It is read-only and is the
+machine-facing counterpart to the human-readable `show`; it reports public
+outputs, not concern eligibility or failure causes.
 
 Tools are declared by lifecycle phase. Lists contain the names of variables
 which resolve to tool paths; wrappers extend `stage_tools`, `install_tools`, or
@@ -127,8 +153,8 @@ supplies `M4` for concerns with templates and `RSYNC` for installation.
 Before realizing staged files, a phony reconciliation target records `M4`,
 `M4FLAGS`, `HOME`, and every render variable in `stage/.build/m4-context`.
 Render variables are the protocol context—the persistent XDG roots, `BIN_DIR`,
-and every `required_inputs` value—plus the concern-level `m4_vars`. Each is
-defined in m4 under the same name. The real context file is
+and every `required_inputs` value—plus the concern-level `m4_vars`. Each Make
+variable `NAME` is defined in m4 as `M4_NAME`. The real context file is
 replaced only when those values change and is a normal prerequisite of every
 ordinary m4 output. Plain files and templates otherwise follow Make's timestamp
 graph; concern-specific file inputs must be named as normal prerequisites.

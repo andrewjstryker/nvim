@@ -69,7 +69,7 @@ ${luarocks_config}: | ${luarocks_config_dir}
 #------------------------------------------------------------------------------#
 
 .PHONY: rocks-bootstrap
-rocks-bootstrap: ${luarocks_config}
+rocks-bootstrap: check-sync-tools ${luarocks_config}
 	@echo "Bootstrapping toml-edit into ${nvim_rocks_dir}..."
 	@LUAROCKS_CONFIG="${luarocks_config}" \
 	  LUA_PATH="${hermetic_lua_path};;" \
@@ -91,7 +91,7 @@ rocks-bootstrap: ${luarocks_config}
 # (available after rocks-bootstrap) to parse rocks.toml and shells out to
 # luarocks and git for each entry.
 #
-# Pack path structure (matches NV_M4_START_DIR / NV_M4_OPT_DIR in paths.m4):
+# Pack path structure (matches M4_START_DIR / M4_OPT_DIR in paths.m4):
 #   ${nvim_rocks_dir}/share/nvim/site/pack/rocks/{start,opt}/
 #
 # Idempotent: luarocks skips installed packages; existing clones are skipped.
@@ -117,5 +117,18 @@ rocks-sync: rocks-bootstrap
 #   - rocks-bootstrap:  installs toml-edit for rocks.toml parsing
 #   - rocks-sync:       installs all plugins from rocks.toml
 #------------------------------------------------------------------------------#
+
+# Cache is runtime state and intentionally outside the protocol manifest.
+.PHONY: clean-cache #> Remove the hermetic rocks cache
+clean-cache:
+	$(if ${DRY_RUN}, \
+	  printf 'would remove %s/ and %s/\n' \
+	    '${nvim_rocks_dir}' '${luarocks_config_dir}', \
+	  printf '\033[1;33mRemoving hermetic rocks cache…\033[0m\n'; \
+	  rm -rf '${nvim_rocks_dir}' '${luarocks_config_dir}'; \
+	  printf '\033[1;32mCache removed.\033[0m\n')
+
+.PHONY: uninstall-cache #> Remove installed config and hermetic cache
+uninstall-cache: uninstall clean-cache
 
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#

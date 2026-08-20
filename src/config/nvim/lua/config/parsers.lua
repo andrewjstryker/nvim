@@ -1,11 +1,11 @@
 -- ~/.config/nvim/lua/config/parsers.lua
 --
 -- The canonical treesitter parser list.  ONE source of truth, consumed by:
---   * build/scripts/install_parsers.lua -- `make build-parsers` provisioning
+--   * build/scripts/install_parsers.lua -- `make sync` provisioning
 --   * lua/plugins/treesitter.lua   -- which filetypes get treesitter enabled
 --   * test/ts_works.lua            -- every entry must actually highlight
 --
--- This list is a BUILD-TIME contract.  `make build-parsers` installs every
+-- This list is a synchronization contract. `make sync` installs every
 -- entry (parser + queries) and fails the build if any cannot be installed; the
 -- runtime then assumes they are there.  Adding a language means editing this
 -- file and re-running `make sync` -- there is no install-on-use path.

@@ -21,7 +21,8 @@ that are known at build time.
 Key decisions:
 
 * **Shell**: Bash (strict mode)
-* **Stage (build.mk)**: prepares the XDG image under `stage/config/nvim/`
+* **Stage (protocol + build.mk)**: prepares the XDG image under
+  `stage/config/nvim/`
 * **Seed (seed.mk)**: bootstraps toml-edit via `luarocks`, then syncs all
   plugins from `rocks.toml` using a host Lua script (no Neovim invocation)
 * **Install**: copies staged artifacts into `NVIM_CONFIG_DIR`
@@ -32,9 +33,9 @@ Key decisions:
   claimed-source/output seam
 * **Isolation**: plugins install into a hermetic LuaRocks tree derived from
   `NVIM_CACHE_DIR` (never system Lua)
-* **M4 discipline**: all build-time m4 symbols are prefixed with `NV_M4_`
-* **Idempotence**: rely on Make's dependency model; use content comparison only
-  where timestamps cannot represent change (environment capture)
+* **M4 discipline**: all build-time m4 symbols are prefixed with `M4_`
+* **Idempotence**: rely on Make's dependency model and use content comparison
+  for renderer context and output stability
 
 The runtime remains trivial: **load Lua and run**.
 
@@ -128,7 +129,7 @@ Examples:
 * **VIMRUNTIME** — Neovim's own runtime directory. The Neovim installation is
   outside the scope of this build system; `env.lua` reads `vim.env.VIMRUNTIME`
   (which Neovim always sets) rather than discovering it at build time.
-* **The rocks.nvim versioned directory** — see "NV_M4_ROCKS_RTP" section below.
+* **The rocks.nvim versioned directory** — see "M4_ROCKS_RTP" below.
 
 Runtime probing should not be used to "repair" or reinterpret the build output.
 
@@ -182,8 +183,8 @@ repo/
 ├─ vendor/
 │  └─ build/fennel/  # pinned compiler script; never installed
 ├─ stage/        # build outputs (gitignored)
-│  ├─ nvim/      # assembled config image
-│  └─ m4/        # generated m4 macros (config_env.m4)
+│  ├─ config/nvim/ # assembled config image
+│  └─ .build/      # private protocol renderer context
 ├─ Makefile
 ├─ environment.mk
 ├─ project.mk
@@ -243,24 +244,15 @@ All other paths are intentionally internal and non-configurable.
 
 ## M4 symbol conventions
 
-All m4 symbols that survive outside a local template file are prefixed with
-`NV_M4_`.
+All m4 symbols that survive outside a local template use the protocol's `M4_`
+prefix. Values such as `NVIM_ROCKS_DIR`, `NVIM_CONFIG_DIR`, and
+`NVIM_TREESITTER_DIR` are declared through `m4_vars` and become
+`M4_NVIM_ROCKS_DIR`, `M4_NVIM_CONFIG_DIR`, and `M4_NVIM_TREESITTER_DIR`.
+Static macros under `build/m4/` derive `M4_SITE_DIR`, `M4_OPT_DIR`,
+`M4_START_DIR`, and `M4_ROCKS_RTP` from that context.
 
-There are two layers of m4 usage:
-
-1. **Static macros** under `build/m4/`
-
-   * e.g., `NV_M4_LUA_VER` (in `constants.m4`)
-   * e.g., `NV_M4_SITE_DIR`, `NV_M4_OPT_DIR`, `NV_M4_START_DIR`,
-     `NV_M4_ROCKS_RTP` (in `paths.m4`)
-
-2. **Generated macros** written during the build to `stage/.m4/config_env.m4`
-
-   * `NV_M4_NVIM_ROCKS_DIR`
-   * `NV_M4_NVIM_CONFIG_DIR`
-
-The prefix rule prevents collisions with m4 builtins, third-party macros, and
-accidental reuse across templates.
+The prefix prevents collisions with m4 builtins and keeps build-time values out
+of the runtime configuration namespace.
 
 ### Quoting convention
 
@@ -268,8 +260,8 @@ All `.m4` files under `build/m4/` use **m4 default quoting** (backtick /
 single-quote). The `common.m4` helper macros use `changequote` to `-<-< / >->-`
 and are intended for inclusion **only from `.lua.m4` templates**, where Lua's
 own use of quotes would otherwise collide with m4 syntax. Static macro files
-(`constants.m4`, `paths.m4`, `config_env.m4`) are included *before*
-`common.m4` or use default quoting.
+(`constants.m4`, `paths.m4`) are included *before* `common.m4` or use default
+quoting.
 
 **Template rule:** In `.lua.m4` files that include `constants.m4` and `paths.m4`
 but do **not** include `common.m4`, backtick characters must not appear anywhere
@@ -280,27 +272,25 @@ files to switch to `-<-<`/`>->-` quoting.
 
 ### Macro expansion in paths.m4
 
-`paths.m4` defines derived path macros using eager expansion. The macro
-name referenced inside the definition body must be **outside quotes** so that
-m4 expands it at define time (which is correct because `config_env.m4` has
-already been included and its values are available):
+`paths.m4` defines derived path macros from protocol context values. A referenced
+macro name must be **outside quotes** so m4 expands it when the definition is
+used:
 
 ```m4
-m4_include(`config_env.m4')
-m4_define(`NV_M4_SITE_DIR',  NV_M4_NVIM_ROCKS_DIR`/share/nvim/site')
-m4_define(`NV_M4_OPT_DIR',   NV_M4_SITE_DIR`/pack/rocks/opt')
-m4_define(`NV_M4_START_DIR', NV_M4_SITE_DIR`/pack/rocks/start')
+m4_define(`M4_SITE_DIR',  M4_NVIM_ROCKS_DIR`/share/nvim/site')
+m4_define(`M4_OPT_DIR',   M4_SITE_DIR`/pack/rocks/opt')
+m4_define(`M4_START_DIR', M4_SITE_DIR`/pack/rocks/start')
 ```
 
-This ensures that when a `.lua.m4` template expands `NV_M4_SITE_DIR`, it
+This ensures that when a `.lua.m4` template expands `M4_SITE_DIR`, it
 receives the fully resolved path.
 
-### NV_M4_ROCKS_RTP — the glob exception
+### M4_ROCKS_RTP — the glob exception
 
-`NV_M4_ROCKS_RTP` is defined in `paths.m4` with a trailing `/*` glob:
+`M4_ROCKS_RTP` is defined in `paths.m4` with a trailing `/*` glob:
 
 ```m4
-m4_define(`NV_M4_ROCKS_RTP', NV_M4_NVIM_ROCKS_DIR`/lib/luarocks/rocks-5.1/rocks.nvim/*')
+m4_define(`M4_ROCKS_RTP', M4_NVIM_ROCKS_DIR`/lib/luarocks/rocks-5.1/rocks.nvim/*')
 ```
 
 This is the **one symbol that does not resolve to a concrete path** at render
@@ -310,49 +300,26 @@ before `make rocks-sync`. The version can also change at runtime via
 `:Rocks update`.
 
 The design principle is: **render what is known at build time**. The base path
-(`NV_M4_NVIM_ROCKS_DIR/lib/luarocks/rocks-5.1/rocks.nvim/`) is known and
+(`M4_NVIM_ROCKS_DIR/lib/luarocks/rocks-5.1/rocks.nvim/`) is known and
 stamped. The version suffix is not known, so it is left as a glob for runtime
 resolution via `vim.fn.glob()`. This falls under probing policy §4
 (inherently dynamic concern).
 
 ---
 
-## Environment capture (`stage/.m4/config_env.m4`)
+## Renderer context
 
-Some build inputs are derived from the user's environment and cannot be tracked
-purely via Make's timestamp-based dependency graph (because the environment can
-change while file mtimes do not).
+Environment-derived render values cannot be represented by source-file mtimes.
+The protocol reconciles them into the private `stage/.build/m4-context` file,
+replacing it only when its content changes. Every ordinary m4 output has that
+real file as a normal prerequisite, so changed values invalidate templates and
+unchanged values leave their mtimes stable. `protocol/bin/gen` transports values
+from that context without shell interpolation and replaces a rendered output
+only when its bytes or executable declaration change.
 
-To address this, `project.mk` generates `stage/.m4/config_env.m4` that captures
-the derived install/cache paths as m4 symbols.
-
-**Idempotence rule for env capture:** the generator must not rewrite the file if
-the content is byte-identical. This is implemented by writing a temporary file
-and using `cmp` before replacing the target.
-
-**Sentinel pattern:** `config_env` is marked `.PHONY` so its recipe runs every
-invocation. The recipe uses `cmp -s` to compare new content against the
-existing file, replacing it **only** when content differs. This bridges
-environment changes into Make's mtime-based dependency graph:
-
-* Environment unchanged → file untouched → mtime unchanged → no rebuild
-* Environment changed → file replaced → mtime updated → dependents rebuild
-
-Downstream m4 targets (e.g., the m4 pattern rule in `build.mk`) must depend
-on `${config_env}` as a **normal prerequisite** so that mtime changes
-propagate correctly:
-
-```makefile
-# CORRECT: normal prerequisite — env changes propagate to rendered files
-${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua.m4 ${m4_static_src} ${config_env} | stage-dirs
-
-# WRONG: order-only — env changes do NOT trigger re-rendering
-${stage_nvim_dir}/lua/%.lua: ${nvim_src_dir}/lua/%.lua.m4 ${m4_static_src} | stage-dirs ${config_env}
-```
-
-The m4 command uses two `-I` flags to search both `build/m4/` (static macros)
-and `stage/.m4/` (generated macros), so `m4_include('config_env.m4')` in
-`paths.m4` resolves regardless of which directory it lives in.
+Neovim adds `build/m4/` through `M4FLAGS` and makes its static macro files normal
+prerequisites of each Lua template. It does not own a second renderer or
+environment-capture path.
 
 ---
 
@@ -366,7 +333,7 @@ Two values are resolved at runtime rather than build time:
 
 * **VIMRUNTIME** — read from `vim.env.VIMRUNTIME` (Neovim installation is
   outside scope; Neovim always provides this value)
-* **rocks_rtp** — resolved from `NV_M4_ROCKS_RTP` glob via `vim.fn.glob()`
+* **rocks_rtp** — resolved from `M4_ROCKS_RTP` glob via `vim.fn.glob()`
   (version suffix unknown at build time)
 
 All other rtp/packpath entries are fully resolved at build time via m4.
@@ -375,9 +342,9 @@ All other rtp/packpath entries are fully resolved at build time via m4.
 
 | Entry | Source | Content |
 |---|---|---|
-| `config_dir` | `NV_M4_NVIM_CONFIG_DIR` | lua/config/, lua/plugins/, ftplugin/ |
-| `rocks_rtp` | `NV_M4_ROCKS_RTP` (glob-resolved) | rocks.nvim plugin/rocks.lua |
-| `rocks_site` | `NV_M4_SITE_DIR` | git-cloned plugins runtime files |
+| `config_dir` | `M4_NVIM_CONFIG_DIR` | lua/config/, lua/plugins/, ftplugin/ |
+| `rocks_rtp` | `M4_ROCKS_RTP` (glob-resolved) | rocks.nvim plugin/rocks.lua |
+| `rocks_site` | `M4_SITE_DIR` | git-cloned plugins runtime files |
 | `vimruntime` | `vim.env.VIMRUNTIME` (runtime) | Neovim built-in runtime (syntax, ftplugin) |
 | `config_dir/after` | derived | user after/ overrides |
 
@@ -385,7 +352,7 @@ All other rtp/packpath entries are fully resolved at build time via m4.
 
 | Entry | Source | Content |
 |---|---|---|
-| `rocks_site` | `NV_M4_SITE_DIR` | pack/rocks/{start,opt}/ |
+| `rocks_site` | `M4_SITE_DIR` | pack/rocks/{start,opt}/ |
 
 **packloadall requirement:** Neovim performs its initial pack scan early in
 startup, before `init.lua` runs. Since `env.lua` replaces `packpath` during
@@ -402,8 +369,9 @@ phases.
 
 ### Preparation (repo-managed artifacts only)
 
-`build.mk` produces `stage/config/nvim/` containing only artifacts derived from the
-repo:
+The protocol produces `stage/config/nvim/` from ordinary sources while
+`build.mk` supplies static m4 prerequisites, module validation, and the claimed
+Fennel rule:
 
 * copy top-level runtime files (`init.lua`, `rocks.toml`)
 * render `*.lua.m4 → *.lua`
@@ -415,7 +383,7 @@ No network access, no third-party clones, and no runtime state appear in stage.
 
 `install` copies `stage/config/nvim/** → NVIM_CONFIG_DIR/**` via rsync.
 
-### Sync (build-time plugin installation)
+### Sync (runtime-state provisioning)
 
 `seed.mk` handles all plugin installation at build time. The process has
 two stages:
@@ -644,9 +612,9 @@ non-interactive by nature.
 ```mermaid
 flowchart TD
   subgraph Prep["Preparation (repo-managed artifacts)"]
-    E["env-capture: stage/.m4/config_env.m4"]
-    E -->|"normal prereq (mtime)"| B["build.mk: stage/config/nvim (copy + m4 + claimed Fennel)"]
-    B --> V["verify: grep for unexpanded NV_M4_ tokens"]
+    E["protocol context: stage/.build/m4-context"]
+    E -->|"normal prereq (mtime)"| B["protocol stage + claimed Fennel"]
+    B --> V["verify: grep for unexpanded M4_ tokens"]
   end
 
   subgraph Install["Installation (destination-specific)"]
@@ -683,9 +651,8 @@ Notes:
   Build-time luarocks hermeticity comes from environment variables
   (`LUAROCKS_CONFIG`, `LUA_PATH`, `LUA_CPATH`) and the `--lua-version=5.1`
   flag, not from controlling which Lua interprets the luarocks command.
-* Env capture uses content comparison (`cmp -s`) to avoid spurious timestamp
-  churn. Downstream m4 targets use `config_env` as a **normal prerequisite**
-  so that environment changes propagate through Make's mtime graph.
+* The protocol context uses content comparison to avoid spurious timestamp
+  churn and is a normal prerequisite of ordinary m4 outputs.
 * `verify` extends the explicit `check` surface and can also be run standalone.
 
 ---
@@ -749,13 +716,10 @@ runtime `env.lua` wires `package.path`, `package.cpath`, and Neovim's
 
 ## Idempotence and change detection
 
-For normal build steps (copying files, rendering templates, and compiling
-Fennel),
-the system relies on **Make's standard dependency and timestamp semantics**.
-
-Explicit content comparison (`cmp`) is used **only** for environment capture
-(`stage/.m4/config_env.m4`) because environment changes cannot be modeled by
-file mtimes alone.
+Plain copies and claimed Fennel compilation rely on Make's standard dependency
+and timestamp semantics. The protocol compares its reconciled renderer context
+and rendered output bytes because environment values have no source-file mtime
+and a changed context need not change every template's output.
 
 This ensures:
 
@@ -784,7 +748,12 @@ Human-facing `.PHONY` targets are intentionally few and stable:
 | `uninstall`        | conservatively remove the installed manifest     |
 | `uninstall-cache`  | remove config + hermetic rocks cache             |
 
-All real work is expressed as **file targets and pattern rules**.
+The top-level `Makefile` is strictly orchestration: it loads environment and
+project declarations, includes the protocol, loads concern implementations,
+and supplies compatibility aliases or dependency composition. Build, seed,
+treesitter, and test recipes remain in their owning fragments. Staged
+transformations are expressed as file targets and pattern rules; lifecycle
+targets compose those transformations with installation or runtime-state work.
 
 ---
 
@@ -794,14 +763,14 @@ The system enforces the following invariants:
 
 1. Exactly one implementation per module path
 2. All required tools must exist
-3. No generated code appears in `nvim/`
+3. No generated code appears in `src/config/nvim/`
 4. Stage contains only repo-managed artifacts (no plugin code)
 5. `rocks.toml` is the single authority for all plugin versions
-6. Plugin installation uses the host Lua interpreter, luarocks, and git
-   (not Neovim). No build phase invokes Neovim.
+6. Plugin installation uses the host Lua interpreter, luarocks, and git;
+   Neovim is invoked only during parser synchronization and runtime tests.
 7. Test and install differ only by destination directories
 8. A hermetic LuaRocks tree is always used for plugin installation
-9. All exported m4 symbols are prefixed with `NV_M4_`
+9. All exported m4 symbols are prefixed with `M4_`
 
 ---
 
@@ -812,7 +781,7 @@ The system enforces the following invariants:
 | Build   | Transform repo sources into stage                  |
 | Install | Copy staged artifacts into destination              |
 | Sync    | Bootstrap toml-edit, install plugins (net)            |
-| Runtime | Load pure Lua; rocks.nvim manages updates; parsers on demand |
+| Runtime | Load pure Lua and use the parser set established by synchronization |
 | Test    | Install + sync in temp dirs; smoke test (fast / full) |
 
 Complexity is intentionally moved **left** into the build so runtime behavior

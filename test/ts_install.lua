@@ -40,7 +40,7 @@ local function highlights(lang)
 end
 
 -- Probe with a language that is neither already usable nor in the canonical set
--- (config.parsers), so `make build-parsers` never pre-installs it and this test
+-- (config.parsers), so `make sync` never pre-installs it and this test
 -- genuinely exercises installing something absent.
 local provisioned = {}
 for _, l in ipairs(require("config.parsers").all()) do provisioned[l] = true end

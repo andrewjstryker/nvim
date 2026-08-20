@@ -16,7 +16,7 @@
 #   test          -- full sync into temp; runs every test/ check (network).
 #   check-keymaps -- load the full config headless and fail on keymap collisions
 #                    BEFORE install (fast: temp config dir, real synced cache).
-#   verify        -- fail if staged Lua still contains NV_M4_ tokens.
+#   verify        -- fail if staged Lua still contains unresolved M4_ tokens.
 #
 # Design:
 #   Everything runs against a TEMP config dir so the real ${NVIM_CONFIG_DIR} is
@@ -28,8 +28,7 @@
 # Assumptions:
 #   - environment.mk has defined:
 #       NVIM, NVIM_CONFIG_DIR, NVIM_CACHE_DIR
-#   - project.mk has defined:
-#       stage_outputs, config_env, stage_nvim_dir
+#   - project.mk has defined stage_nvim_dir.
 #   - the top-level Makefile enforces the /nvim invariant on the dir variables
 #     and provides the install/sync targets these invoke.
 #
@@ -156,9 +155,9 @@ check-keymaps: check-stage-tools check-install-tools
 # Verify: check rendered artifacts for unexpanded m4 tokens
 #------------------------------------------------------------------------------#
 
-.PHONY: verify #> Verify no unexpanded NV_M4_ tokens remain in staged Lua
-verify: ${stage_outputs} ${config_env}
-	@if grep -rn 'NV_M4_[A-Z_]*' ${stage_nvim_dir}/lua/ 2>/dev/null \
+.PHONY: verify #> Verify no unexpanded M4_ tokens remain in staged Lua
+verify: stage
+	@if grep -rn 'M4_[A-Z_]*' ${stage_nvim_dir}/lua/ 2>/dev/null \
 	    | grep -v '^\s*--'; then \
 	  echo "ERROR: Unexpanded m4 tokens found in staged output"; \
 	  exit 1; \

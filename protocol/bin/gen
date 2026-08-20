@@ -26,6 +26,53 @@ shift 2
 
 : "${M4:=m4}"
 
+# Make records render values in a private context file and passes only their
+# variable names. Normalize those pseudo-options here, where shell argument
+# construction preserves punctuation literally.
+original_count=$#
+for argument do
+	case $argument in
+		--define-context=*)
+			binding=${argument#--define-context=}
+			context_name=${binding%%=*}
+			macro_name=${binding#*=}
+			if [ "$context_name" = "$binding" ]; then
+				macro_name=$context_name
+			fi
+			case $context_name in
+				'' | *[!A-Za-z0-9_]*)
+					printf 'gen: invalid context variable name: %s\n' "$context_name" >&2
+					exit 2
+					;;
+			esac
+			case $macro_name in
+				'' | *[!A-Za-z0-9_]*)
+					printf 'gen: invalid m4 macro name: %s\n' "$macro_name" >&2
+					exit 2
+					;;
+			esac
+			: "${M4_CONTEXT_FILE:?gen: M4_CONTEXT_FILE is required}"
+			found=no
+			while IFS= read -r line || [ -n "$line" ]; do
+				if [ "${line%%=*}" = "$context_name" ]; then
+					value=${line#*=}
+					found=yes
+					break
+				fi
+			done < "$M4_CONTEXT_FILE"
+			if [ "$found" = no ]; then
+				printf 'gen: context variable not found: %s\n' "$context_name" >&2
+				exit 2
+			fi
+			set -- "$@" "--define=${macro_name}=${value}"
+			;;
+		*)
+			set -- "$@" "$argument"
+			;;
+	esac
+done
+shift "$original_count"
+
 mkdir -p "$(dirname "$output")"
 
 tmp="${output}.tmp.$$"

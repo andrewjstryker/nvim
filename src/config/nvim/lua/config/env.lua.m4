@@ -25,18 +25,18 @@ m4_include(`paths.m4')m4_dnl
 
 local M = {}
 
--- Build-time constants (stamped by config_env.m4 via project.mk)
-M.nvim_rocks_dir = "NV_M4_NVIM_ROCKS_DIR"
-M.config_dir     = "NV_M4_NVIM_CONFIG_DIR"
-M.treesitter_dir = "NV_M4_TREESITTER_DIR"
+-- Build-time constants supplied by the protocol renderer context.
+M.nvim_rocks_dir = "M4_NVIM_ROCKS_DIR"
+M.config_dir     = "M4_NVIM_CONFIG_DIR"
+M.treesitter_dir = "M4_NVIM_TREESITTER_DIR"
 
--- Derived constants (stamped by paths.m4 from config_env.m4 values)
-M.rocks_site    = "NV_M4_SITE_DIR"
-M.lua_share_dir = "NV_M4_NVIM_ROCKS_DIR/share/lua/NV_M4_LUA_VER"
-M.lua_lib_dir   = "NV_M4_NVIM_ROCKS_DIR/lib/lua/NV_M4_LUA_VER"
+-- Derived constants supplied by paths.m4.
+M.rocks_site    = "M4_SITE_DIR"
+M.lua_share_dir = "M4_NVIM_ROCKS_DIR/share/lua/M4_LUA_VER"
+M.lua_lib_dir   = "M4_NVIM_ROCKS_DIR/lib/lua/M4_LUA_VER"
 
 -- rocks.nvim versioned directory (glob — version suffix unknown at build time)
-M.rocks_rtp_glob = "NV_M4_ROCKS_RTP"
+M.rocks_rtp_glob = "M4_ROCKS_RTP"
 
 -- Prepend a semicolon-separated path string (Lua package path style)
 local function prepend_path(original, prefix)

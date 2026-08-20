@@ -255,7 +255,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Clone git plugins
 --
--- Pack path structure (matches NV_M4_START_DIR / NV_M4_OPT_DIR in paths.m4):
+-- Pack path structure (matches M4_START_DIR / M4_OPT_DIR in paths.m4):
 --   ${rocks_dir}/share/nvim/site/pack/rocks/{start,opt}/<n>/
 -- ---------------------------------------------------------------------------
 

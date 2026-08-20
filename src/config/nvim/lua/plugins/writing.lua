@@ -27,7 +27,7 @@ end
 -- LOADS before loading the plugin.  This is a behavioral check, not a file or
 -- name check: vim.treesitter.language.add() returns true even on a binary that
 -- ships no usable parser, so only get_parser()+parse() is trustworthy.  A
--- correctly provisioned install (see `make build-parsers`) always passes; a
+-- correctly provisioned install (see `make sync`) always passes; a
 -- broken one degrades to a warning instead of a wall of errors.
 local function markdown_parser_loads()
   return pcall(function()
@@ -42,7 +42,7 @@ vim.api.nvim_create_autocmd("FileType", {
   callback = function()
     if not markdown_parser_loads() then
       vim.notify(
-        "render-markdown: markdown treesitter parser unavailable -- run `make build-parsers`",
+        "render-markdown: markdown treesitter parser unavailable -- run `make sync`",
         vim.log.levels.WARN
       )
       return

@@ -100,7 +100,7 @@ if #no_queries > 0 then
     :format(table.concat(no_queries, ", ")))
   io.stderr:write("  The installer skips any language whose parser is already\n")
   io.stderr:write("  on disk, so a stale parser dir suppresses its own queries.\n")
-  io.stderr:write("  Fix: `make clean-parsers build-parsers` to reprovision.\n")
+  io.stderr:write("  Fix: `make clean-parsers sync` to reprovision.\n")
 end
 
 if #no_parser > 0 or #no_queries > 0 then

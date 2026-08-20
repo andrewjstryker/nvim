@@ -1,12 +1,12 @@
 # Installing formatters
 
 Formatters are **optional dependencies**.  The build system detects whichever
-are present on PATH (or, for `styler`, available via R) at `make sync` time,
+are present on PATH (or, for `styler`, available via R) at `make install` time,
 and generates `plugins/formatting.lua` accordingly.  A filetype with no
 available formatter falls through to LSP formatting via conform's
 `lsp_fallback`.
 
-After installing a new formatter, re-run `make sync` so the build re-probes
+After installing a new formatter, re-run `make install` so the build re-probes
 and re-stamps the resolved command paths into the generated config.
 
 ---
@@ -112,7 +112,7 @@ available via `requireNamespace`.  Both must succeed.
 Re-probe and check the rendered config:
 
 ```sh
-make sync
+make install
 grep command stage/config/nvim/lua/plugins/formatting.lua
 ```
 

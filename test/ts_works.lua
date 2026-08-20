@@ -25,7 +25,7 @@
 -- Whether a .so landed at an expected path is a proxy; this is the real thing.
 --
 -- Severity: ERROR.  config.parsers is a build-time contract that
--- `make build-parsers` refuses to leave unsatisfied, so a language in the
+-- `make sync` refuses to leave unsatisfied, so a language in the
 -- canonical set that does not highlight means the contract was broken after
 -- the fact -- not a merely missing optional extra.
 --
@@ -80,7 +80,7 @@ if #broken > 0 then
   io.stderr:write(("TSTEST FAIL [works]: no treesitter highlighting for: %s\n")
     :format(table.concat(broken, ", ")))
   io.stderr:write("  These are in config.parsers, so the build promised them.\n")
-  io.stderr:write("  Fix: `make clean-parsers build-parsers` to reprovision.\n")
+  io.stderr:write("  Fix: `make clean-parsers sync` to reprovision.\n")
   os.exit(1)
 end
 

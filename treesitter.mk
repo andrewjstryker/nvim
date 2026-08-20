@@ -42,24 +42,6 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 
 #------------------------------------------------------------------------------#
-# tree-sitter CLI guard
-#
-# Scoped to this file rather than added to a lifecycle tool list: build, install,
-# and test-fast are unaffected by a missing CLI, and only parser compilation
-# needs it.  environment.mk resolves TREE_SITTER to empty when the binary is
-# absent OR older than ${TREE_SITTER_MIN_VERSION}.
-#------------------------------------------------------------------------------#
-
-.PHONY: check-treesitter-cli
-check-treesitter-cli:
-ifeq ($(strip ${TREE_SITTER}),)
-	$(error tree-sitter CLI >= ${TREE_SITTER_MIN_VERSION} not found on PATH. \
-	  nvim-treesitter compiles parsers with `tree-sitter build`. \
-	  Install it with `cargo install tree-sitter-cli` (not npm), \
-	  or set TREE_SITTER=/path/to/tree-sitter)
-endif
-
-#------------------------------------------------------------------------------#
 # Provision the canonical parser set
 #
 # Idempotent: nvim-treesitter skips languages already at the recorded revision,
@@ -67,14 +49,27 @@ endif
 #------------------------------------------------------------------------------#
 
 .PHONY: provision-parsers
-provision-parsers: check-sync-tools check-treesitter-cli rocks-sync
+provision-parsers: rocks-sync
 	@echo "Provisioning treesitter parsers into ${nvim_treesitter_dir}..."
 	@XDG_CONFIG_HOME="${nvim_xdg_config}" \
 	  XDG_CACHE_HOME="${nvim_xdg_cache}" \
+	  PATH="$(dir ${TREE_SITTER}):$$PATH" \
+	  CC="${C_COMPILER}" \
 	  ${NVIM} --headless \
 	    -u "${NVIM_CONFIG_DIR}/init.lua" \
 	    -c "luafile ${scripts_dir}/install_parsers.lua" \
 	    -c "qa"
+
+# Provision plugins and parsers after installation. A direct sync assumes that
+# install has already run; the collection driver provides the ordered apply.
+.PHONY: sync-nvim-state
+sync-nvim-state: check-sync-tools
+	$(if ${DRY_RUN}, \
+	  printf 'would sync rocks into %s/\n' '${NVIM_ROCKS_DIR}'; \
+	  printf 'would build parsers into %s/\n' '${nvim_treesitter_dir}', \
+	  ${MAKE} --no-print-directory provision-parsers)
+
+sync: sync-nvim-state
 
 #------------------------------------------------------------------------------#
 # Discard the hermetic parser tree

@@ -28,14 +28,17 @@ operation as `home apply nvim`.
 | `git`        | cloning git-based plugins               |
 | `rsync`      | atomic install and stage copy           |
 | `awk`        | minor tooling                           |
+| `tree-sitter` >= 0.26.1 | compiling configured parsers      |
+| C compiler   | compiling configured parsers             |
 
 ### Optional: formatters
 
 Formatters (`prettier`, `stylua`, `ruff`, `black`, `sql_formatter`, `styler`)
-are optional.  Whichever are present on PATH at `make sync` time are wired
-into conform.nvim; filetypes with no formatter installed fall through to
-LSP formatting.  See [`FORMATTERS.md`](./FORMATTERS.md) for install recipes
-and verification steps.
+are optional. Whichever are present on PATH when `make install` stages the
+configuration are wired into conform.nvim; filetypes with no formatter
+installed fall through to LSP formatting. Re-run `make install` (or the
+collection driver's apply operation) after adding one. See
+[`FORMATTERS.md`](./FORMATTERS.md) for installation and verification steps.
 
 ### Install
 
