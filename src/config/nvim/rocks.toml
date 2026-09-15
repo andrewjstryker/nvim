@@ -161,7 +161,7 @@ git = "folke/zen-mode.nvim"
 [plugins.nvim-tmux-navigation]
 git = "alexghergh/nvim-tmux-navigation"
 
-# wiki-style notes (render-markdown.nvim covers Markdown blogging better):
+# wiki-style notes
 [plugins.vimwiki]
 git = "vimwiki/vimwiki"
 opt = true
