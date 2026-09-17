@@ -70,6 +70,11 @@ git = "hrsh7th/cmp-path"
 [plugins.conform.nvim]
 git = "stevearc/conform.nvim"
 
+# --- Nvim does not include a Fennel syntax file
+[plugins.fennel]
+git = "https://git.sr.ht/~m15a/vim-fennel-syntax"
+opt = true
+
 # --- SQL ---
 [plugins.vim-dadbod]
 git = "tpope/vim-dadbod"
@@ -166,7 +171,7 @@ git = "alexghergh/nvim-tmux-navigation"
 git = "vimwiki/vimwiki"
 opt = true
 
-# unicode table lookup (niche):
+# unicode table lookup:
 [plugins.unicode.vim]
 git = "chrisbra/unicode.vim"
 opt = true
