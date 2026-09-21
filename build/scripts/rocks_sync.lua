@@ -265,6 +265,17 @@ if #git_plugins > 0 then
   log("Syncing " .. #git_plugins .. " git plugin(s)...")
   for _, plug in ipairs(git_plugins) do
     local dest = site_pack .. "/" .. plug.kind .. "/" .. plug.name
+    -- Reconcile opt changes without leaving an eager copy behind or cloning
+    -- again. Preserve the existing checkout, including any local edits.
+    local other_kind = plug.kind == "opt" and "start" or "opt"
+    local previous = site_pack .. "/" .. other_kind .. "/" .. plug.name
+    if clone_exists(previous) then
+      assert(not clone_exists(dest), "Plugin exists in both start and opt: " .. plug.name)
+      local parent = site_pack .. "/" .. plug.kind
+      assert(run("mkdir -p '" .. parent:gsub("'", "'\\''") .. "'"))
+      assert(os.rename(previous, dest))
+      log("  [move] " .. plug.name .. " -> " .. plug.kind)
+    end
     if clone_exists(dest) then
       -- A pinned ref (`branch`) may name a branch OR a tag.  We treat it as
       -- an opaque ref, check it out in DETACHED HEAD, and consider the clone

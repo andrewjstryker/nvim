@@ -65,6 +65,11 @@ GIT       ?= $(shell command -v git)
 AWK       ?= $(shell command -v awk)
 M4        ?= $(shell command -v m4)
 
+# Used only by the test drivers, to bound a headless Neovim run.  A hung
+# session -- an autocommand that re-enters itself, a language server that never
+# answers -- has to become a failure rather than a wedged build.
+TIMEOUT   ?= $(shell command -v timeout)
+
 # luarocks command (used directly — see "LuaRocks isolation" in design.md)
 LUAROCKS ?= $(shell command -v luarocks)
 

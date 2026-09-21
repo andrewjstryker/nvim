@@ -6,6 +6,7 @@ vim.g.loaded_netrwPlugin = 1
 vim.g.loaded_netrw = 1
 
 -- Files & history
+vim.opt.exrc = true             -- trusted project-local .nvim.lua configuration
 vim.opt.undofile = true
 vim.opt.backup = true
 local backup_dir = vim.fn.stdpath("state") .. "/backup"

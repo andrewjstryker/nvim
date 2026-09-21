@@ -468,11 +468,70 @@ Both tiers:
 
 * create temp directories `$tmp/config/nvim` and `$tmp/cache/nvim`
 * run the pipeline with overridden `NVIM_CONFIG_DIR` / `NVIM_CACHE_DIR`
-* launch headless Neovim with `-u init.lua`, assert `config.env` loaded,
-  and check stderr for errors
+* launch headless Neovim there, assert `config.env` loaded, and check stderr
+  for errors
 
 This ensures that **test and install use identical logic**, differing only by
 their destination roots.
+
+#### Tiers are preconditions; checks are a list
+
+There are three test entry points, and they differ only in **precondition** —
+the one thing a caller cannot infer:
+
+| target | needs | runs |
+|---|---|---|
+| `test-fast` | nothing | build + install, does Neovim start? |
+| `check` | a prior `make sync` | + `verify` and every offline check |
+| `test` | the network | + a full sync and `ts_install` |
+
+Which checks a tier runs is a **list in `test.mk`**, not a target. Adding a
+check must not add an entry point; a target per check turns the Makefile into
+a test selector, which is not its job. `CHECKS=` narrows either tier while
+iterating.
+
+`check` is the protocol's own extension point — "stage and run concern-defined
+checks" — so the offline tier hooks into it rather than growing siblings
+beside it. Note that `check-*` is the protocol's namespace for tool preflight
+(`check-tools`, `check-stage-tools`), so a new `check-something` would read as
+preflight rather than as a test.
+
+#### One harness
+
+`test.mk` holds no test logic. It hands the work to one driver under `test/`,
+written in POSIX shell like `protocol/tests/staging.sh`:
+
+* **`test/checks.sh`** — install into a throwaway root, prove Neovim starts
+  clean, run the named checks against that single install.
+* **`test/lua_runtime.sh`** — sourced by the driver; the one check that needs
+  whole sessions of its own.
+* **`test/lib.sh`** — the single implementation of "throwaway XDG root, real
+  build into it, headless Neovim against it".
+
+There was once one such implementation per target — two in Make and a third in
+Python — which is how the harness came to contradict itself.
+
+The split between a driver and a `test/session/*.lua` script is not stylistic.
+A session script asserts what is true **inside one running Neovim**; only Lua
+can ask whether a highlighter is attached to a buffer. A driver owns what
+**differs between sessions**, and nothing inside a session can observe: which
+`lua` is on `PATH` and what it reports, whether it was probed at all, a
+trusted project-local `.nvim.lua`, or a file on the command line. Neither can
+do the other's job.
+
+#### A session script owns its exit
+
+Each `test/session/*.lua` ends in `os.exit(0)` or `os.exit(1)`, and the driver
+appends **no** `-c qa`. Quitting for the script would make Neovim exit 0 even
+when the script died before reaching its own exit — on a typo, or an error
+outside its `pcall` — and a check that asserts nothing would be reported as a
+pass. `NVIM_TIMEOUT` is the backstop for a script that never exits at all:
+slow, but a failure rather than a lie.
+
+For the same reason the drivers name no `-u init.lua`. `XDG_CONFIG_HOME`
+already points Neovim at the installed config, and naming the init file
+explicitly suppresses `exrc` — which quietly turned the project-local
+`.nvim.lua` scenarios into duplicates of the plain ones.
 
 #### What the treesitter checks assert
 
@@ -496,6 +555,26 @@ the failure the migration to `main` uncovered.
 `test-fast` runs no treesitter check at all: it installs the config without
 provisioning plugins or parsers, so the only honest assertion at that point is
 that Neovim starts cleanly.
+
+#### What the Lua/Fennel scenarios assert
+
+`lua_runtime` covers the one-shot resolve in `lua/plugins/lua.lua`: the
+session settles on a single Lua target at the first Lua or Fennel buffer,
+later buffers reuse it, and Fennel highlights — **including the buffer that
+triggered the resolve**.
+
+That last clause is the whole point. The Fennel syntax package is optional, so
+it arrives by `packadd` from a `FileType` autocommand, and Neovim's own
+`FileType` handlers are registered first: `config.env` runs `packloadall`, the
+start plugins turn syntax on, and only then is `config.autocmds` required. For
+the buffer that triggers the `packadd`, the syntax lookup has already happened
+and found nothing. A check that opens a second Fennel buffer passes while the
+first one in every session sits unhighlighted, which is exactly what happened.
+
+The scenarios also assert a negative the same code makes easy to get wrong: a
+project-local target must make probing the interpreter **unnecessary**, not
+merely override its result. The driver counts invocations of a fake `lua` on
+`PATH` — a property no session can see from the inside.
 
 #### Headless Neovim must be XDG-isolated
 
@@ -742,7 +821,8 @@ Human-facing `.PHONY` targets are intentionally few and stable:
 | `install`          | install staged artifacts into `NVIM_CONFIG_DIR`  |
 | `sync`             | sync plugins and parsers for installed config    |
 | `test-fast`        | quick smoke test: build + install (no network)   |
-| `test`             | full smoke test: install + sync + runtime checks |
+| `check`            | staged artifacts + every offline check            |
+| `test`             | full smoke test: install + sync + every check    |
 | `verify`           | check staged Lua for unexpanded m4 tokens        |
 | `clean`            | remove `stage/`                                  |
 | `uninstall`        | conservatively remove the installed manifest     |

@@ -6,28 +6,33 @@
 #
 # Responsibilities:
 #   - Smoke-test a freshly built/synced config in throwaway directories, running
-#     the headless checks under test/ (parsers, keymaps).
+#     the headless checks under test/session/ (parsers, keymaps, Lua/Fennel).
 #   - Verify rendered artifacts before install (no unexpanded m4 tokens; no
 #     keymap collisions).
 #
 # Targets:
-#   test-fast     -- build + install into temp; warns on missing bundled parsers
-#                    (no network, seconds).
-#   test          -- full sync into temp; runs every test/ check (network).
-#   check-keymaps -- load the full config headless and fail on keymap collisions
-#                    BEFORE install (fast: temp config dir, real synced cache).
-#   verify        -- fail if staged Lua still contains unresolved M4_ tokens.
+#   test-fast        -- build + install into temp, clean startup (no network,
+#                       seconds).
+#   check            -- verify, plus every check that runs offline against the
+#                       already-synced cache.  Narrow with CHECKS=.
+#   test             -- full sync into temp; every check (network).
+#   verify           -- fail if staged Lua still contains unresolved M4_ tokens.
 #
 # Design:
-#   Everything runs against a TEMP config dir so the real ${NVIM_CONFIG_DIR} is
-#   never touched.  The headless checks (test/*.lua) each exit non-zero on
-#   failure and reuse the SAME code the runtime uses (e.g. config.keymap's audit)
-#   rather than a second rulebook.  Like the smoke tests, a sub-make re-stages
-#   with the temp config path, so the next real `make install` re-stages.
+#   This file holds no test logic, and no per-check targets.  It selects a
+#   tier and hands the work to one driver under test/, the way
+#   protocol/tests/staging.sh is driven -- a single implementation of
+#   "throwaway XDG root, real build into it, headless Neovim against it".
+#
+#   The checks reuse the SAME code the runtime uses (e.g. config.keymap's
+#   audit) rather than a second rulebook, and they run against the INSTALLED
+#   image, never src/: the m4 render and the staging rules are part of what is
+#   under test.  A sub-make re-stages with the temp config path, so the next
+#   real `make install` re-stages.
 #
 # Assumptions:
 #   - environment.mk has defined:
-#       NVIM, NVIM_CONFIG_DIR, NVIM_CACHE_DIR
+#       NVIM, TIMEOUT, NVIM_CONFIG_DIR, NVIM_CACHE_DIR
 #   - project.mk has defined stage_nvim_dir.
 #   - the top-level Makefile enforces the /nvim invariant on the dir variables
 #     and provides the install/sync targets these invoke.
@@ -35,121 +40,76 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 
 #------------------------------------------------------------------------------#
-# Smoke tests
+# Tiers
 #
-# Two tiers:
-#   test-fast  — build + install + verify (no network, seconds)
-#   test       — full sync + smoke (network required, ~1 min)
+# Three entry points, distinguished by PRECONDITION -- the one thing a caller
+# cannot infer.  Which checks a tier runs is a list, not a target: adding a
+# check must not add an entry point.
 #
-# The treesitter checks in the `test` tier assert BEHAVIOR, never layout:
+#   test-fast  needs nothing        build + install, does Neovim start?
+#   check      needs `make sync`    + every check that works offline
+#   test       needs the network    + a full sync and the install check
+#
+# `check` is the protocol's own extension point ("stage and run
+# concern-defined checks"); this concern hooks verify and the offline
+# behavioral checks into it rather than growing siblings beside it.
+#
+# All of it runs through one driver, test/checks.sh, which installs into a
+# throwaway root and runs the named checks against that single install:
+#
+#   test/checks.sh         the driver (POSIX sh, like protocol/tests/staging.sh)
+#   test/lua_runtime.sh    the lua_runtime check, which needs whole sessions
+#   test/session/*.lua     assertions inside one running Neovim
+#
+# Each test/session/*.lua asserts BEHAVIOR and exits non-zero on failure.  The
+# treesitter pair never looks at where a parser or a query file landed; see
+# design.md §2.
+#
 #   ts_works    — does treesitter work for every language the build promises?
 #   ts_install  — can this environment install a language it does not have?
-# Neither looks at where a parser or query file landed; see design.md §2.
+#   keymaps     — do any config-owned keys collide?
+#   lua_runtime — does the lazy Lua/Fennel resolve behave, first buffer on?
 #
-# Both use temp directories so the user's real config is never touched.
-# Stage is left containing temp-path artifacts; the next real `make install`
-# will cheaply re-stage with real paths.
+# Everything runs against temp directories, so the real ${NVIM_CONFIG_DIR} is
+# never touched.  Stage is left holding temp-path artifacts; the next real
+# `make install` cheaply re-stages.
 #------------------------------------------------------------------------------#
 
-# Shared helper: set up temp dirs, run one or more ordered make targets, then
-# smoke-test Neovim. Each sub-Make is a deliberate, shallow build evaluation
-# with the temporary installation context.
-# Usage: $(call run_smoke,<ordered-make-targets>[,<test scripts>])
-#
-# The optional second argument is a space-separated list of Lua test scripts
-# (see test/) run headless under the freshly installed config; each must exit
-# non-zero on failure. Used to check parsers and keymaps after sync.
-#
-# The temp directory structure ($tmp/config/nvim, $tmp/cache/nvim) satisfies
-# the /nvim invariant enforced in the top-level Makefile, so $(dir ...) produces
-# correct XDG base directories.
-define run_smoke
-	@tmp_root="$$(mktemp -d)"; \
-	tmp_cfg="$$tmp_root/config/nvim"; \
-	tmp_cache="$$tmp_root/cache/nvim"; \
-	mkdir -p "$$tmp_cfg" "$$tmp_cache" "$$tmp_root/state" "$$tmp_root/data"; \
-	trap 'rm -rf "$$tmp_root"' EXIT; \
-	echo "Smoke test using:"; \
-	echo "  NVIM_CONFIG_DIR=$$tmp_cfg"; \
-	echo "  NVIM_CACHE_DIR=$$tmp_cache"; \
-	for target in $(1); do \
-	  $(MAKE) "$$target" \
-	    NVIM_CONFIG_DIR="$$tmp_cfg" \
-	    NVIM_CACHE_DIR="$$tmp_cache"; \
-	done; \
-	echo "Verifying Neovim starts cleanly..."; \
-	smoke_err="$$tmp_root/smoke_stderr.log"; \
-	XDG_CONFIG_HOME="$$tmp_root/config" \
-	  XDG_CACHE_HOME="$$tmp_root/cache" \
-	  XDG_STATE_HOME="$$tmp_root/state" \
-	  XDG_DATA_HOME="$$tmp_root/data" \
-	  ${NVIM} --headless \
-	    -u "$$tmp_cfg/init.lua" \
-	    +"lua assert(package.loaded['config.env'], 'config.env not loaded')" \
-	    +qa 2>"$$smoke_err"; \
-	if grep -q "^Error\|^E[0-9]" "$$smoke_err"; then \
-	  echo "Smoke test FAILED — Neovim produced errors:"; \
-	  cat "$$smoke_err"; \
-	  exit 1; \
-	fi; \
-	echo "Smoke test passed."; \
-	scripts="$(2)"; \
-	for tscript in $$scripts; do \
-	  echo "Post-sync check: $$tscript"; \
-	  XDG_CONFIG_HOME="$$tmp_root/config" \
-	    XDG_CACHE_HOME="$$tmp_root/cache" \
-	    XDG_STATE_HOME="$$tmp_root/state" \
-	    XDG_DATA_HOME="$$tmp_root/data" \
-	    ${NVIM} --headless \
-	      -u "$$tmp_cfg/init.lua" \
-	      -c "luafile $$tscript" \
-	      -c "qa" \
-	    || { echo "Check FAILED: $$tscript"; exit 1; }; \
-	done
-endef
+# Tools reach the driver through the environment so host discovery stays in
+# environment.mk and the tests never grow a second rulebook.
+test_env = NVIM='${NVIM}' TIMEOUT='${TIMEOUT}' MAKE='$(MAKE)'
 
-# test-fast deliberately runs no post-sync checks. It installs the config
-# but never provisions plugins or parsers, so the only honest thing to assert at
-# that point is the one it does assert: Neovim starts cleanly.  Checking
-# treesitter here would only ever report the absence of a step this tier skips.
+# ts_install is the only check that needs the network: it installs a language
+# the canonical set deliberately lacks.  Everything else runs offline against
+# an already-synced cache.
+offline_checks = keymaps ts_works lua_runtime
+online_checks  = ${offline_checks} ts_install
+
+# Narrow either tier while iterating:  make check CHECKS=lua_runtime
+CHECKS ?=
+
 .PHONY: test-fast #> Quick smoke test: build + install + clean startup (no network)
 test-fast:
-	$(call run_smoke,install)
+	@${test_env} sh test/checks.sh
 
-.PHONY: test #> Full smoke test: install and sync, then check runtime behavior (network)
+# Hooked into the protocol's `check`, below.  Ordered after verify so a
+# parallel make cannot re-stage with temp paths while verify greps the stage.
+.PHONY: test-installed
+test-installed: verify
+	@${test_env} sh test/checks.sh -c '${NVIM_CACHE_DIR}' \
+	  $(if ${CHECKS},${CHECKS},${offline_checks})
+
+check: test-installed
+
+# One sync, one install, every check.
+.PHONY: test #> Full check: install and sync into temp, then every check (network)
 test:
-	$(call run_smoke,install sync,$(abspath test/ts_works.lua) $(abspath test/ts_install.lua) $(abspath test/keymaps.lua))
-
-#------------------------------------------------------------------------------#
-# Pre-install keymap collision check
-#
-# Load the full config headless and run the keymap audit (config.keymap) via
-# test/keymaps.lua -- the SAME audit the runtime runs at VimEnter, so there is
-# no second rulebook to drift.  The staged config installs into a TEMP config
-# dir (the real ${NVIM_CONFIG_DIR} is never touched) while plugins load from the
-# already-synced ${NVIM_CACHE_DIR}: fast, no network.
-#
-# Requires a prior `make sync` so plugin maps are present; without it only
-# config-level maps are checked.
-#------------------------------------------------------------------------------#
-
-.PHONY: check-keymaps #> Detect keymap collisions before install (needs synced plugins)
-check-keymaps: check-stage-tools check-install-tools
-	@echo "Checking for keymap collisions..."
 	@tmp_root="$$(mktemp -d)"; \
-	tmp_cfg="$$tmp_root/config/nvim"; \
+	tmp_cache="$$tmp_root/cache/nvim"; \
+	mkdir -p "$$tmp_cache"; \
 	trap 'rm -rf "$$tmp_root"' EXIT; \
-	mkdir -p "$$tmp_cfg" "$$tmp_root/cache" "$$tmp_root/state"; \
-	$(MAKE) --no-print-directory install \
-	  NVIM_CONFIG_DIR="$$tmp_cfg" NVIM_CACHE_DIR="${NVIM_CACHE_DIR}" >/dev/null; \
-	XDG_CONFIG_HOME="$$tmp_root/config" \
-	  XDG_CACHE_HOME="$$tmp_root/cache" \
-	  XDG_STATE_HOME="$$tmp_root/state" \
-	  XDG_DATA_HOME="$$tmp_root/data" \
-	  ${NVIM} --headless \
-	    -u "$$tmp_cfg/init.lua" \
-	    -c "luafile $(abspath test/keymaps.lua)" \
-	    -c "qa"
+	${test_env} sh test/checks.sh -c "$$tmp_cache" -t 'install sync' \
+	  $(if ${CHECKS},${CHECKS},${online_checks})
 
 #------------------------------------------------------------------------------#
 # Verify: check rendered artifacts for unexpanded m4 tokens

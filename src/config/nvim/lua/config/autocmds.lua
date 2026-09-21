@@ -12,6 +12,16 @@
 -- Keep this file free of clever, defensive, or plugin-specific logic.
 local aug = vim.api.nvim_create_augroup("CoreAutocmds", { clear = true })
 
+-- Resolve the session's Lua target before syntax loads. First file wins.
+vim.api.nvim_create_autocmd("FileType", {
+  group = aug,
+  pattern = { "lua", "fennel" },
+  once = true,
+  callback = function()
+    require("plugins.lua")
+  end,
+})
+
 -- Highlight on yank
 vim.api.nvim_create_autocmd("TextYankPost", {
   group = aug,

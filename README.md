@@ -80,6 +80,39 @@ there.
 
 ## Daily Usage
 
+### Lua and Fennel projects
+
+The first Lua or Fennel buffer initializes support for both languages once per
+Neovim session, including loading the optional Fennel syntax package. Its Lua
+target comes from `lua_ls`'s `settings.Lua.runtime.version`, if configured;
+otherwise it comes from `lua -v` on PATH (Lua 5.1 if `lua` is absent).
+Subsequent files reuse that target. Start a new session to change targets.
+
+Project configuration uses Neovim's built-in `exrc` support, enabled here.
+For example, a Neovim project can place this in `.nvim.lua`:
+
+```lua
+vim.lsp.config("lua_ls", {
+  settings = {
+    Lua = {
+      runtime = { version = "LuaJIT" },
+      workspace = { library = { vim.env.VIMRUNTIME } },
+      diagnostics = { globals = { "vim" } },
+    },
+  },
+})
+```
+
+For standalone Lua, set `runtime.version` to, for example, `"Lua 5.5"` and
+omit the Neovim library/globals. Open the project configuration and use
+`:trust`, then restart Neovim from the project directory. Neovim owns local
+config discovery and trust; this configuration does not scan each buffer's
+ancestors or parse custom modelines. A `.luarc.json` remains a LuaLS-specific
+configuration file; use `.nvim.lua` for a target shared with Fennel highlighting.
+
+After updating, run `make install` and `make sync`; sync moves an existing
+Fennel checkout from `start` to `opt` while preserving local edits.
+
 ### Update plugins
 
 ```bash
@@ -91,6 +124,20 @@ make sync
 ```bash
 make test
 ```
+
+`make test` needs the network: it syncs plugins and parsers into temp
+directories, then runs every check against that install. `make check` runs
+the same checks that work offline, against the already-synced cache, in
+seconds — it is the one to run before installing:
+
+```bash
+make check                     # staged artifacts + every offline check
+make check CHECKS=lua_runtime  # narrow it while iterating
+```
+
+The check names are `keymaps`, `ts_works`, `lua_runtime` and (network only)
+`ts_install`. Adding a check does not add a make target: it goes in the list
+in `test.mk`.
 
 ### Remove the config only
 

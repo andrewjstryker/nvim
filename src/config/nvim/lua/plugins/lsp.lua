@@ -59,18 +59,6 @@ vim.lsp.config("ruff", {
   end,
 })
 
--- Lua: for editing this Neovim config
-vim.lsp.config("lua_ls", {
-  settings = {
-    Lua = {
-      runtime    = { version = "LuaJIT" },
-      workspace  = { library = { vim.env.VIMRUNTIME } },
-      diagnostics = { globals = { "vim" } },
-      telemetry  = { enable = false },
-    },
-  },
-})
-
 -- Enable all servers (nvim-lspconfig supplies cmd, filetypes, root_markers)
 -- Each server auto-starts only when its filetypes are opened.
 vim.lsp.enable({
@@ -79,5 +67,4 @@ vim.lsp.enable({
   "r_language_server",
   "sqlls",
   "marksman",
-  "lua_ls",
 })
