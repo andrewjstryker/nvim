@@ -360,6 +360,103 @@ startup, before `init.lua` runs. Since `env.lua` replaces `packpath` during
 must call `vim.cmd("packloadall")` after setting `packpath` to trigger a
 re-scan so that git-cloned plugins (including colorschemes) are discovered.
 
+That re-scan also determines the order in which autocommands are registered
+for the rest of the session — see **Startup ordering invariant** below.
+
+---
+
+## Startup ordering invariant
+
+`packloadall` has a consequence that reaches past plugin discovery:
+
+> **Neovim's own `FileType` handlers are registered before any autocommand this
+> configuration creates.**
+
+`packloadall` sources every `pack/rocks/start/*/plugin/*` file, and one of them
+— `vim-sensible/plugin/sensible.vim` — runs `filetype plugin indent on` and
+`syntax enable`. Those two commands create the augroups `filetypeplugin`,
+`filetypeindent` and `syntaxset`, each holding a `FileType *` handler.
+`config.env` is required first in `init.lua`, so all three exist by the time
+`config.autocmds` runs.
+
+Startup, in order:
+
+1. Neovim's initial pack scan, against the **default** packpath — finds nothing
+   of ours.
+2. `init.lua` → `config.env`: replaces rtp and packpath, then `packloadall`
+   → start plugins load → `filetypeplugin`, `filetypeindent`, `syntaxset`
+   registered.
+3. `init.lua` → `config.options`, `config.keymaps`, `config.autocmds`: this
+   configuration's own autocommands registered — **after** step 2.
+4. `init.lua` → `config.plugins`: per-concern modules, including
+   `plugins/treesitter.lua`, which registers `TreesitterAttach` later still.
+5. After `init.lua`: Neovim's `runtime/plugin/*`, then a trusted `exrc`, then
+   any file named on the command line — `BufReadPost`, filetype detection,
+   `FileType`.
+
+Autocommands fire in registration order, so **every** `FileType` event runs:
+
+| # | Group | Does |
+|---|---|---|
+| 1 | `filetypeplugin` | sources `ftplugin/<ft>.{vim,lua}` |
+| 2 | `filetypeindent` | sources `indent/<ft>.vim` |
+| 3 | `syntaxset` | `set syntax=<ft>`, sourcing `syntax/<ft>.vim` |
+| 4 | `CoreAutocmds`, … | this configuration's handlers |
+| 5 | `TreesitterAttach` | `vim.treesitter.start()` |
+
+### Consequence for lazily loaded packages
+
+A package `packadd`ed from step 4 arrives **after** steps 1–3 have already
+looked for its ftplugin, indent and syntax files and found nothing. For that
+one buffer the package is inert. Every later buffer of the same filetype is
+fine, because the package is on the runtimepath by then — which is precisely
+what makes the failure easy to miss.
+
+So: **a lazily loaded package that supplies ftplugin, indent or syntax files
+must replay those three groups for the buffer that triggered the load.**
+`lua/plugins/lua.lua` is the worked example:
+
+```lua
+if vim.bo.filetype == "fennel" then
+  vim.bo.syntax = ""
+  for _, group in ipairs({ "filetypeplugin", "filetypeindent", "syntaxset" }) do
+    if vim.fn.exists("#" .. group .. "#FileType") == 1 then
+      vim.cmd("doautocmd <nomodeline> " .. group .. " FileType fennel")
+    end
+  end
+end
+```
+
+Three details there are load-bearing:
+
+* **Target the groups; do not re-fire `FileType`.** Re-setting `'filetype'`, or
+  a bare `doautocmd FileType`, re-enters the `once` autocommand that triggered
+  the load: the callback is still registered while it runs, so this recurses
+  until the session hangs.
+* **Clear `'syntax'` first.** `SynSet` does nothing when the option is assigned
+  its current value, and step 3 already set it to the filetype name.
+* **Guard on the group existing.** A session started with `syntax off` or
+  `filetype plugin off` has no such augroup, and `doautocmd` on a missing group
+  is an error.
+
+Treesitter needs no replay: for a filetype with a bundled parser, Neovim's own
+`ftplugin/<ft>.lua` calls `vim.treesitter.start()` during step 1, setting
+`b:ts_highlight`, which makes step 3 skip legacy syntax. That is why the replay
+above is scoped to Fennel — the one filetype here with a syntax file and no
+bundled parser.
+
+### Consequence for tests
+
+A harness that requires `config.autocmds` without loading the start plugins
+gets the **opposite** order: Neovim enables syntax from its own runtime files
+*after* `init.lua`, so the `packadd` wins the race by accident. Such a harness
+reports a pass while the first Fennel buffer of every real session sits
+unhighlighted — which is exactly what happened here.
+
+This is why the test drivers install and run the **real** configuration,
+`packloadall` included, rather than putting `src/` on the runtimepath; see
+*Test (smoke)*.
+
 ---
 
 ## Build and installation phases
@@ -851,6 +948,9 @@ The system enforces the following invariants:
 7. Test and install differ only by destination directories
 8. A hermetic LuaRocks tree is always used for plugin installation
 9. All exported m4 symbols are prefixed with `M4_`
+10. Neovim's own `FileType` handlers are registered before this
+    configuration's; a lazily loaded package that supplies ftplugin, indent or
+    syntax files must replay them for the buffer that triggered the load
 
 ---
 
