@@ -9,12 +9,12 @@
 #
 # Usage: checks.sh [-c CACHE_DIR] [-t 'TARGETS'] [CHECK...]
 #
-#   CHECK         A check to run.  Either the name of a test/session/ script
-#                 (keymaps, ts_works, ts_install), asserted inside one Neovim
-#                 under the fresh install; or `lua_runtime`, which needs
-#                 whole sessions of its own and is driven by
-#                 test/lua_runtime.sh.  With no CHECK, only the clean-startup
-#                 check runs.
+#   CHECK         A check to run.  Most are the name of a test/session/
+#                 script (keymaps, ts_works, ts_install), asserted inside one
+#                 Neovim under the fresh install.  Two need a session of their
+#                 own and have a driver beside this one: `lua_runtime`
+#                 (test/lua_runtime.sh) and `vscode` (test/vscode.sh).  With
+#                 no CHECK, only the clean-startup check runs.
 #   -t 'TARGETS'  Lifecycle targets to run into the temp root, in order.
 #                 Default 'install'; 'install sync' provisions plugins and
 #                 parsers too (network).
@@ -41,6 +41,8 @@ repo_root=$(CDPATH='' cd -- "${here}/.." && pwd)
 . "${here}/lib.sh"
 # shellcheck source=test/lua_runtime.sh
 . "${here}/lua_runtime.sh"
+# shellcheck source=test/vscode.sh
+. "${here}/vscode.sh"
 
 lib_check_tools
 
@@ -115,6 +117,9 @@ for check in "$@"; do
 	case ${check} in
 	lua_runtime)
 		lua_runtime_scenarios "${root}" "${cache}" || failures=$((failures + 1))
+		;;
+	vscode)
+		vscode_check "${root}" || failures=$((failures + 1))
 		;;
 	*)
 		test_session "${root}" "${here}/session/${check}.lua" \

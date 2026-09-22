@@ -135,8 +135,9 @@ make check                     # staged artifacts + every offline check
 make check CHECKS=lua_runtime  # narrow it while iterating
 ```
 
-The check names are `keymaps`, `ts_works`, `lua_runtime` and (network only)
-`ts_install`. Adding a check does not add a make target: it goes in the list
+The check names are `keymaps`, `ts_works`, `lua_runtime`, `vscode` and
+(network only) `ts_install`. Adding a check does not add a make target: it
+goes in the list
 in `test.mk`.
 
 ### Remove the config only

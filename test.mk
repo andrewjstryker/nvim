@@ -69,6 +69,8 @@
 #   ts_install  — can this environment install a language it does not have?
 #   keymaps     — do any config-owned keys collide?
 #   lua_runtime — does the lazy Lua/Fennel resolve behave, first buffer on?
+#   vscode      — does the VS Code branch keep the extension's rtp and reach
+#                 the provisioned parsers?
 #
 # Everything runs against temp directories, so the real ${NVIM_CONFIG_DIR} is
 # never touched.  Stage is left holding temp-path artifacts; the next real
@@ -82,7 +84,7 @@ test_env = NVIM='${NVIM}' TIMEOUT='${TIMEOUT}' MAKE='$(MAKE)'
 # ts_install is the only check that needs the network: it installs a language
 # the canonical set deliberately lacks.  Everything else runs offline against
 # an already-synced cache.
-offline_checks = keymaps ts_works lua_runtime
+offline_checks = keymaps ts_works lua_runtime vscode
 online_checks  = ${offline_checks} ts_install
 
 # Narrow either tier while iterating:  make check CHECKS=lua_runtime

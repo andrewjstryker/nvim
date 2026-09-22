@@ -391,8 +391,9 @@ means `make sync` has not run; creating an empty one would repair nothing,
 since a missing runtimepath entry is kept in the option and simply yields no
 files.
 
-**Known gap:** no tier under *Test (smoke)* exercises the VS Code path. It is a
-second rtp contract with no automated check.
+Both halves of that contract — the extension's entries surviving, and the
+parsers being reachable — are asserted by the `vscode` check; see *What the VS
+Code check asserts*.
 
 ---
 
@@ -631,8 +632,8 @@ written in POSIX shell like `protocol/tests/staging.sh`:
 
 * **`test/checks.sh`** — install into a throwaway root, prove Neovim starts
   clean, run the named checks against that single install.
-* **`test/lua_runtime.sh`** — sourced by the driver; the one check that needs
-  whole sessions of its own.
+* **`test/lua_runtime.sh`**, **`test/vscode.sh`** — sourced by the driver; the
+  two checks that need a session of their own.
 * **`test/lib.sh`** — the single implementation of "throwaway XDG root, real
   build into it, headless Neovim against it".
 
@@ -703,6 +704,26 @@ The scenarios also assert a negative the same code makes easy to get wrong: a
 project-local target must make probing the interpreter **unnecessary**, not
 merely override its result. The driver counts invocations of a fake `lua` on
 `PATH` — a property no session can see from the inside.
+
+#### What the VS Code check asserts
+
+`vscode` runs the **other branch** of `init.lua` — the one every other check
+skips, because `vim.g.vscode` is never set under them. It asserts the two
+promises of *VS Code mode* above:
+
+* the sentinel runtimepath entry planted before the configuration loads is
+  still there afterwards, so `vscode_env` appended rather than replaced;
+* a markdown, lua, help and query buffer each open with a treesitter
+  highlighter attached — the four filetypes whose bundled ftplugin calls
+  `vim.treesitter.start()` — plus Fugitive being live, which is the stated
+  reason this branch exists.
+
+Only the extension's own `vscode` Lua module is stubbed, the same bargain the
+Lua/Fennel check strikes with `vim.lsp.enable`: the module exists only inside
+VS Code, and starting a real one is not what is under test. Everything else is
+the installed configuration taking its real branch, with Neovim's filetype and
+syntax defaults on — which matters, because an ftplugin is what fails when
+this check fails.
 
 #### Headless Neovim must be XDG-isolated
 
