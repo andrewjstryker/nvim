@@ -363,6 +363,37 @@ re-scan so that git-cloned plugins (including colorschemes) are discovered.
 That re-scan also determines the order in which autocommands are registered
 for the rest of the session — see **Startup ordering invariant** below.
 
+### VS Code mode
+
+`init.lua` gates on `vim.g.vscode`: inside the vscode-neovim extension it loads
+`config.vscode`, which wires `config.vscode_env` instead of `config.env`. The
+difference is deliberate — `vscode_env` **appends** to Neovim's defaults rather
+than replacing them, because the extension puts its own entries on the
+runtimepath (`vscode.internal` and friends) and replacing them breaks it.
+
+One entry is **prepended** rather than appended: the hermetic treesitter tree.
+Four of Neovim's own ftplugins — `markdown`, `lua`, `help`, `query` — open with
+a bare `vim.treesitter.start()`, which asserts when no parser can be created.
+A Neovim that ships no bundled parsers therefore raises `E5113` on every
+markdown or Lua buffer unless the provisioned parsers are reachable. In the
+normal path `lua/plugins/treesitter.lua` is the sole owner of that rtp entry
+via nvim-treesitter's `setup({ install_dir = ... })`; VS Code mode never loads
+`config.plugins`, so it wires the same directory itself, in the same position,
+so both modes resolve parsers and queries in the same order.
+
+Like every other entry in that module the directory is an m4-stamped constant,
+so the path is settled before installation (§2). Nothing is probed and nothing
+is created: VS Code mode only ever *reads* parsers. `lua/plugins/treesitter.lua`
+does `mkdir` its install dir first, but that is a provisioning concern —
+nvim-treesitter writes there, and `make clean-parsers sync` cleans and
+re-provisions inside a single process. An absent directory in VS Code mode only
+means `make sync` has not run; creating an empty one would repair nothing,
+since a missing runtimepath entry is kept in the option and simply yields no
+files.
+
+**Known gap:** no tier under *Test (smoke)* exercises the VS Code path. It is a
+second rtp contract with no automated check.
+
 ---
 
 ## Startup ordering invariant

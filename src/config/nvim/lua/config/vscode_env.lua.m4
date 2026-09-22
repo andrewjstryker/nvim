@@ -34,9 +34,10 @@ M.nvim_rocks_dir = "M4_NVIM_ROCKS_DIR"
 M.config_dir     = "M4_NVIM_CONFIG_DIR"
 
 -- Derived constants supplied by paths.m4.
-M.rocks_site    = "M4_SITE_DIR"
-M.lua_share_dir = "M4_NVIM_ROCKS_DIR/share/lua/M4_LUA_VER"
-M.lua_lib_dir   = "M4_NVIM_ROCKS_DIR/lib/lua/M4_LUA_VER"
+M.rocks_site     = "M4_SITE_DIR"
+M.treesitter_dir = "M4_NVIM_TREESITTER_DIR"
+M.lua_share_dir  = "M4_NVIM_ROCKS_DIR/share/lua/M4_LUA_VER"
+M.lua_lib_dir    = "M4_NVIM_ROCKS_DIR/lib/lua/M4_LUA_VER"
 
 -- Prepend a semicolon-separated path string (Lua package path style)
 local function prepend_path(original, prefix)
@@ -96,7 +97,35 @@ local function setup_paths()
   vim.opt.packpath:append(M.rocks_site)
 
   ---------------------------------------------------------------------------
-  -- 3) Trigger pack scanning so plugins in the appended packpath are found.
+  -- 3) Treesitter parsers and queries.
+  --
+  --    VS Code owns highlighting, so this is not about highlighting.  Four of
+  --    Neovim's own ftplugins -- markdown, lua, help, query -- open with a
+  --    bare vim.treesitter.start(), which ASSERTS when no parser can be
+  --    created.  Neovim here ships no bundled parsers, and the provisioned
+  --    ones live in the hermetic treesitter tree, so without this entry every
+  --    markdown or Lua buffer raises E5113 inside VS Code.
+  --
+  --    In the normal path lua/plugins/treesitter.lua is the sole owner of this
+  --    rtp entry, via nvim-treesitter's setup({ install_dir = ... }).  VS Code
+  --    mode never loads config.plugins, so it must wire the same directory
+  --    itself -- prepended, as setup() does, so both modes resolve parsers and
+  --    queries in the same order.
+  --
+  --    The path is stamped at build time like every other entry here, and
+  --    nothing is created or probed: VS Code mode only ever READS parsers.
+  --    lua/plugins/treesitter.lua does mkdir its install_dir first, but that
+  --    is a provisioning concern -- nvim-treesitter WRITES there, and
+  --    clean-parsers followed by sync cleans and re-provisions within one
+  --    process.  An absent directory here only means sync has not run, and
+  --    creating an empty one would repair nothing: a missing runtimepath
+  --    entry is kept in the option and simply yields no files.
+  ---------------------------------------------------------------------------
+
+  vim.opt.runtimepath:prepend(M.treesitter_dir)
+
+  ---------------------------------------------------------------------------
+  -- 4) Trigger pack scanning so plugins in the appended packpath are found.
   ---------------------------------------------------------------------------
   vim.cmd("packloadall")
 end
