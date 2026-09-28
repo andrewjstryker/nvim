@@ -120,5 +120,6 @@ You should see one line per installed formatter, with the absolute path
 stamped in.  `make show` will also list all discovered formatter paths in
 the toolset summary.
 
-In Neovim, open a buffer of the relevant filetype and either save (formats
-on save via conform) or run `<leader>cf` to format explicitly.
+In Neovim, open a buffer of the relevant filetype and run `<leader>cf` to
+format explicitly. Saving does not format by default. See the README's
+wrapping and formatting section for a project-local opt-in.
