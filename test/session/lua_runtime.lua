@@ -6,7 +6,7 @@
 -- triggered the resolve.
 --
 -- That last clause is the whole reason this file exists.  The Fennel syntax
--- package is optional (packadd, from lua/plugins/lua.lua), and Neovim's own
+-- package is optional (packadd, from lua/plugins/lua_runtime.lua), and Neovim's own
 -- FileType handlers -- filetypeplugin, filetypeindent, syntaxset -- are
 -- registered before this configuration's, because config.env runs packloadall
 -- and the start plugins turn syntax on before config.autocmds is required.
@@ -49,14 +49,14 @@ end
 local enabled = 0
 
 local function before_first_buffer(first)
-  assert(not package.loaded["plugins.lua"],
-    "plugins.lua loaded before any Lua or Fennel buffer")
+  assert(not package.loaded["plugins.lua_runtime"],
+    "plugins.lua_runtime loaded before any Lua or Fennel buffer")
   assert(#vim.api.nvim_get_runtime_file("syntax/fennel.vim", false) == 0,
     "the Fennel package is on the runtimepath before any Lua or Fennel buffer")
 
   vim.cmd("setfiletype text")
-  assert(not package.loaded["plugins.lua"],
-    "plugins.lua loaded for an unrelated filetype")
+  assert(not package.loaded["plugins.lua_runtime"],
+    "plugins.lua_runtime loaded for an unrelated filetype")
 
   -- Count enablement instead of performing it: starting a real language
   -- server is not what is under test, and its absence must not be a failure.
