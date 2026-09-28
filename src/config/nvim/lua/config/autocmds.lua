@@ -19,7 +19,7 @@ vim.api.nvim_create_autocmd("FileType", {
   pattern = { "lua", "fennel" },
   once = true,
   callback = function()
-    require("plugins.lua")
+    require("plugins.lua_runtime")
   end,
 })
 

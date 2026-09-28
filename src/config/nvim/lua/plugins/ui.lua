@@ -4,7 +4,6 @@
 -- Truecolor + UI niceties
 vim.opt.cursorline = true
 vim.opt.number = true
-vim.opt.relativenumber = false
 vim.opt.signcolumn = "yes"
 
 -- which-key: shows pending keybind popup

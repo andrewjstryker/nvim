@@ -11,9 +11,8 @@ local expression = "v:lua.require'config.writing'.format()"
 function M.configure_buffer()
   if vim.bo.buftype ~= "" then return end
   local ft = vim.bo.filetype
-  local ec = vim.b.editorconfig
-  local width = type(ec) == "table" and ec.max_line_length or nil
-  vim.bo.textwidth = width == "off" and 0 or tonumber(width) or vim.go.textwidth
+  -- Width is inherited from options.lua, then owned by filetype/project
+  -- settings. Do not reset it here or include it in this module's undo list.
   -- Preserve filetype-specific list handling, but remove exceptions that leave
   -- existing long lines unwrapped or continuously reformat whole paragraphs.
   vim.opt_local.formatoptions:remove({ "t", "a", "l", "v", "b" })
@@ -30,7 +29,7 @@ function M.configure_buffer()
   -- remains available separately through <leader>cf.
   vim.bo.formatexpr = expression
   vim.b.undo_ftplugin = (vim.b.undo_ftplugin or "")
-    .. " | setlocal textwidth< formatoptions< formatexpr<"
+    .. " | setlocal formatoptions< formatexpr<"
 end
 
 local environments = {

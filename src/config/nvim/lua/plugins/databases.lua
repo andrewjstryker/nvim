@@ -1,4 +1,4 @@
--- ~/.config/nvim/lua/plugins/sql.lua
+-- ~/.config/nvim/lua/plugins/databases.lua
 -- Plugins: vim-dadbod, vim-dadbod-ui, vim-dadbod-completion
 
 -- dadbod-ui settings (vim globals, set before the plugin loads)

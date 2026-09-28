@@ -32,6 +32,16 @@ vim.g.fennel_lua_version = version
 vim.g.fennel_use_luajit = luajit and 1 or 0
 vim.cmd("packadd fennel")
 
+-- Neovim already detects .fnl/.fnlm. The plugin's late BufRead detector uses
+-- `setlocal filetype`, which repeats FileType after EditorConfig and restores
+-- plugin indentation over project settings. Remove only those duplicate
+-- extension handlers; its guarded shebang detector can remain.
+vim.api.nvim_clear_autocmds({
+  group = "filetypedetect",
+  event = { "BufReadPost", "BufNewFile" },
+  pattern = { "*.fnl", "*.fnlm" },
+})
+
 vim.lsp.config("lua_ls", {
   settings = { Lua = { runtime = { version = target } } },
 })
