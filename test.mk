@@ -84,7 +84,7 @@ test_env = NVIM='${NVIM}' TIMEOUT='${TIMEOUT}' MAKE='$(MAKE)'
 # ts_install is the only check that needs the network: it installs a language
 # the canonical set deliberately lacks.  Everything else runs offline against
 # an already-synced cache.
-offline_checks = keymaps ts_works lua_runtime vscode
+offline_checks = keymaps ts_works lua_runtime vscode wrapping language_defaults
 online_checks  = ${offline_checks} ts_install
 
 # Narrow either tier while iterating:  make check CHECKS=lua_runtime
