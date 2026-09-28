@@ -80,6 +80,64 @@ there.
 
 ## Daily Usage
 
+### Wrapping and formatting
+
+Comments and prose wrap at 80 columns while typing. Code keeps automatic
+indentation and filetype indentation rules, without automatic line breaking.
+Text, Markdown, Pandoc, and TeX buffers also wrap visually at the window edge.
+Project `.editorconfig` settings (such as `max_line_length`) override the
+default width. Long URLs and other unbreakable text may exceed it.
+
+The indentation baseline is two spaces (`expandtab`, `shiftwidth=2`,
+`softtabstop=-1`). Literal tabs display at eight-column tab stops; pressing Tab
+uses the indentation width. R, Shell, and Lua inherit this baseline. Python's
+built-in filetype plugin supplies four spaces; the Fennel plugin supplies
+two-space, form-aware indentation. There are no dedicated C/C++ style overrides.
+Filetype settings may override the baseline, and project EditorConfig settings
+take precedence over both. External formatters still use their own project
+configuration; editor options do not replace formatter settings.
+
+Use `gq` with a motion or selection to reflow prose, for example `gqip` for a
+paragraph. Markdown fences, indented code, tables, and hard-break lines are
+protected both while typing and during `gq`. Lines containing pipes are
+conservatively protected even before a table is complete. The Markdown parser
+is required; without it, Markdown reflow is suppressed until `make sync`.
+TeX protection covers `\[...\]`, `$$...$$`, common display-math environments
+(`equation`, `align`, `alignat`, `flalign`, `gather`, `multline`, `displaymath`,
+`eqnarray`, including starred forms), and verbatim environments (`verbatim`,
+`Verbatim`, `BVerbatim`, `LVerbatim`, `lstlisting`, `minted`, `alltt`). Custom TeX
+macros and environments are not parsed.
+
+`<leader>cf` explicitly formats the whole buffer with Conform or an available
+LSP formatter. Saving does **not** format by default. Markdown's Prettier
+defaults preserve prose wrapping and disable embedded-code formatting;
+project Prettier configuration takes precedence. Explicit formatting may
+still align tables or normalize other Markdown structure.
+
+To opt a project into formatting on save, put this in its `.nvim.lua`, open
+that file and run `:trust`, then restart Neovim from the project directory:
+
+```lua
+local root = vim.fs.dirname(debug.getinfo(1, "S").source:sub(2))
+vim.api.nvim_create_autocmd({ "BufReadPost", "BufNewFile" }, {
+  group = vim.api.nvim_create_augroup("ProjectFormatOnSave", { clear = true }),
+  callback = function(ev)
+    local path = vim.api.nvim_buf_get_name(ev.buf)
+    if vim.fs.relpath(root, path) then
+      vim.b[ev.buf].format_on_save = true
+    end
+  end,
+})
+```
+
+The opt-in is buffer-local, so files outside that project remain unaffected.
+Set `vim.b.format_on_save = false` to disable it for the current buffer.
+VS Code continues to own its own formatting and save behavior.
+
+Saving preserves trailing whitespace unless EditorConfig explicitly requests
+`trim_trailing_whitespace = true`. That rule also removes Markdown hard breaks;
+use `false` in a Markdown section to preserve them.
+
 ### Lua and Fennel projects
 
 The first Lua or Fennel buffer initializes support for both languages once per
@@ -135,7 +193,8 @@ make check                     # staged artifacts + every offline check
 make check CHECKS=lua_runtime  # narrow it while iterating
 ```
 
-The check names are `keymaps`, `ts_works`, `lua_runtime`, `vscode` and
+The check names are `keymaps`, `ts_works`, `lua_runtime`, `vscode`, `wrapping`,
+`language_defaults` and
 (network only) `ts_install`. Adding a check does not add a make target: it
 goes in the list
 in `test.mk`.

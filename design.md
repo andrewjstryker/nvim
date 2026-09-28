@@ -163,6 +163,7 @@ repo/
 │  │   │   ├─ options.lua
 │  │   │   ├─ keymaps.lua
 │  │   │   ├─ autocmds.lua
+│  │   │   ├─ writing.lua
 │  │   │   ├─ plugins.lua
 │  │   │   └─ util.lua
 │  │   └─ plugins/
@@ -171,8 +172,9 @@ repo/
 │  │       ├─ formatting.lua
 │  │       ├─ git.lua
 │  │       ├─ lsp.lua
+│  │       ├─ lua_runtime.lua
 │  │       ├─ navigation.lua
-│  │       ├─ sql.lua
+│  │       ├─ databases.lua
 │  │       ├─ treesitter.lua
 │  │       ├─ ui.lua
 │  │       └─ writing.lua
@@ -210,6 +212,30 @@ Plugin configuration uses a concern-based organization under `nvim/lua/plugins/`
 Each file groups related plugins by concern (editing, git, treesitter, lsp,
 formatting, etc.) rather than one file per plugin. `nvim/lua/config/plugins.lua`
 is the loader that requires each concern file.
+
+Native editing behavior stays under `lua/config/`, rather than depending on
+plugin setup. `config/writing.lua` owns the shared writing policy: prose
+filetypes, display wrapping, spelling, comment formatting, and `gq`, including
+protected Markdown and TeX regions. It also owns `b:undo_ftplugin` cleanup so
+changing filetype restores the defaults.
+`config/autocmds.lua` dispatches to its `configure_buffer()` after filetype
+plugins load; EditorConfig then applies project settings. Default width and
+indentation live in `config/options.lua`.
+Neovim and vim-sensible supply the floor configuration. Local settings express
+deliberate departures or required integration behavior rather than restating
+that floor; tag searching and ShaDa persistence inherit the upstream settings.
+The writing dispatcher does not reset `textwidth`: filetype overrides must
+survive it, and EditorConfig applies project widths and indentation afterwards.
+The indentation baseline is two spaces, with existing Python and Fennel
+filetype support supplying their language conventions. Do not duplicate these
+upstream settings in local filetype overrides.
+
+`plugins/formatting.lua` configures Conform's external formatters and the
+buffer-local opt-in for formatting on save. `plugins/writing.lua` configures
+Zen Mode and Markdown rendering. Neither owns native paragraph reflow.
+Use `after/ftplugin/<ft>.lua` only for small exceptions unique to a particular
+filetype. Applying a shared policy based on filetype does not make it a
+filetype-specific exception; keep that policy together under `config/`.
 
 ### Plugin manifest
 
@@ -438,6 +464,12 @@ Autocommands fire in registration order, so **every** `FileType` event runs:
 
 ### Consequence for lazily loaded packages
 
+Fennel's package also registers extension detectors when loaded. Its `.fnl`
+and `.fnlm` handlers unconditionally set the filetype after EditorConfig has
+run, causing indentation defaults to overwrite project settings. The Lua/Fennel
+loader removes those redundant handlers; Neovim's native extension detection
+already handles both. The plugin's guarded shebang detector remains.
+
 A package `packadd`ed from step 4 arrives **after** steps 1–3 have already
 looked for its ftplugin, indent and syntax files and found nothing. For that
 one buffer the package is inert. Every later buffer of the same filetype is
@@ -446,7 +478,7 @@ what makes the failure easy to miss.
 
 So: **a lazily loaded package that supplies ftplugin, indent or syntax files
 must replay those three groups for the buffer that triggered the load.**
-`lua/plugins/lua.lua` is the worked example:
+`lua/plugins/lua_runtime.lua` is the worked example:
 
 ```lua
 if vim.bo.filetype == "fennel" then
@@ -687,7 +719,7 @@ that Neovim starts cleanly.
 
 #### What the Lua/Fennel scenarios assert
 
-`lua_runtime` covers the one-shot resolve in `lua/plugins/lua.lua`: the
+`lua_runtime` covers the one-shot resolve in `lua/plugins/lua_runtime.lua`: the
 session settles on a single Lua target at the first Lua or Fennel buffer,
 later buffers reuse it, and Fennel highlights — **including the buffer that
 triggered the resolve**.
@@ -899,6 +931,7 @@ NVIM_CONFIG_DIR/
 │  │  ├─ options.lua
 │  │  ├─ keymaps.lua
 │  │  ├─ autocmds.lua
+│  │  ├─ writing.lua
 │  │  ├─ plugins.lua
 │  │  └─ util.lua
 │  └─ plugins/
@@ -907,8 +940,9 @@ NVIM_CONFIG_DIR/
 │     ├─ formatting.lua
 │     ├─ git.lua
 │     ├─ lsp.lua
+│     ├─ lua_runtime.lua
 │     ├─ navigation.lua
-│     ├─ sql.lua
+│     ├─ databases.lua
 │     ├─ treesitter.lua
 │     ├─ ui.lua
 │     └─ writing.lua
