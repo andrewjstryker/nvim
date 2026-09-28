@@ -4,6 +4,7 @@
 -- events to small callbacks and delegates anything non-trivial elsewhere.
 --
 --   * Per-filetype buffer settings  -> after/ftplugin/<ft>.lua
+--   * Shared native formatting      -> lua/config/formatting.lua
 --   * Plugin configuration/loading  -> lua/plugins/<concern>.lua
 --   * Treesitter parsers            -> owned by Neovim (bundled) and
 --                                      nvim-treesitter (extras); see
@@ -30,16 +31,16 @@ vim.api.nvim_create_autocmd("TextYankPost", {
   end,
 })
 
--- Trim trailing whitespace on save (skip diff buffers and gpg files)
-vim.api.nvim_create_autocmd("BufWritePre", {
+-- Filetype plugins load first; EditorConfig applies project widths afterwards.
+vim.api.nvim_create_autocmd("FileType", {
   group = aug,
   callback = function()
-    if vim.bo.filetype == "diff" or vim.bo.filetype == "gpg" then return end
-    local pos = vim.api.nvim_win_get_cursor(0)
-    vim.cmd([[silent! %s/\s\+$//e]])
-    pcall(vim.api.nvim_win_set_cursor, 0, pos)
+    require("config.formatting").configure_buffer()
   end,
 })
+
+-- Whitespace trimming belongs to built-in EditorConfig. Without an explicit
+-- project rule, saving preserves whitespace (including Markdown hard breaks).
 
 ---------------------------------------------------------------------------
 -- Lazy-load opt=true plugins on matching filetypes

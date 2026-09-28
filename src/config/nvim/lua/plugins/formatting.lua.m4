@@ -1,5 +1,7 @@
 -- ~/.config/nvim/lua/plugins/formatting.lua  (generated from formatting.lua.m4)
 -- Plugin: conform.nvim
+-- External whole-buffer formatting. Native typing/gq policy is configured
+-- separately in config/formatting.lua.
 --
 -- Formatter binaries are discovered at build time (see environment.mk).
 -- Only binaries found on PATH during "make install" are stamped here, so this
@@ -14,7 +16,16 @@ conform.setup({
   -- invokes the exact binary found at build time, not whatever the runtime
   -- PATH happens to resolve to.
   formatters = {
-m4_ifdef(`M4_PRETTIER',      `    prettier      = { command = "M4_PRETTIER" },
+m4_ifdef(`M4_PRETTIER',      `    prettier = {
+      command = "M4_PRETTIER",
+      prepend_args = function(_, ctx)
+        if vim.bo[ctx.buf].filetype == "markdown" then
+          return { "--prose-wrap", "preserve", "--embedded-language-formatting", "off",
+            "--config-precedence", "prefer-file" }
+        end
+        return {}
+      end,
+    },
 ')m4_dnl
 m4_ifdef(`M4_STYLUA',        `    stylua        = { command = "M4_STYLUA" },
 ')m4_dnl
@@ -48,11 +59,11 @@ m4_ifdef(`M4_PRETTIER',      `    markdown = { "prettier" },
 m4_ifdef(`M4_STYLUA',        `    lua      = { "stylua" },
 ')m4_dnl
   },
-  -- Format on save (async, with 500ms timeout).  lsp_fallback lets the
-  -- LSP format files whose filetype has no formatter configured above.
-  format_on_save = {
-    timeout_ms = 500,
-    lsp_fallback = true,
-  },
+  -- A trusted project .nvim.lua can opt individual buffers in.
+  format_on_save = function(bufnr)
+    if vim.b[bufnr].format_on_save == true then
+      return { timeout_ms = 500, lsp_fallback = true }
+    end
+  end,
 })
 m4_dnl vim: ft=lua

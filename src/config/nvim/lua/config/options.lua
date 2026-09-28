@@ -16,7 +16,8 @@ vim.opt.swapfile = true
 vim.opt.shada = "'100,<100,s10,h"
 
 -- Text formatting
-vim.opt.textwidth = 78
+vim.opt.textwidth = 80
+vim.opt.autoindent = true        -- filetype indentexpr supplies syntax-aware indentation
 vim.opt.linebreak = true          -- wrap at word boundaries (takes effect when wrap is on)
 vim.opt.wrap = false
 vim.opt.formatoptions = "cqrj1"   -- added r: auto-insert comment leader on Enter
