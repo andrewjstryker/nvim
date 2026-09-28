@@ -1,7 +1,6 @@
 -- ~/.config/nvim/lua/plugins/writing.lua
 -- Plugins: zen-mode, render-markdown
--- Writing UI only. Native wrapping/reflow lives in config/formatting.lua;
--- visual wrapping and spelling are configured in after/ftplugin/.
+-- Writing UI only. Native wrapping, spelling and reflow live in config/writing.lua.
 
 -- Zen mode (distraction-free writing)
 local ok_zen, zen = pcall(require, "zen-mode")

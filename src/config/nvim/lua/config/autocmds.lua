@@ -3,8 +3,8 @@
 -- Core, editor-wide autocommands only.  This file is a dispatcher: it wires
 -- events to small callbacks and delegates anything non-trivial elsewhere.
 --
---   * Per-filetype buffer settings  -> after/ftplugin/<ft>.lua
---   * Shared native formatting      -> lua/config/formatting.lua
+--   * Filetype-specific exceptions  -> after/ftplugin/<ft>.lua
+--   * Shared writing policy         -> lua/config/writing.lua
 --   * Plugin configuration/loading  -> lua/plugins/<concern>.lua
 --   * Treesitter parsers            -> owned by Neovim (bundled) and
 --                                      nvim-treesitter (extras); see
@@ -35,7 +35,7 @@ vim.api.nvim_create_autocmd("TextYankPost", {
 vim.api.nvim_create_autocmd("FileType", {
   group = aug,
   callback = function()
-    require("config.formatting").configure_buffer()
+    require("config.writing").configure_buffer()
   end,
 })
 

@@ -1,7 +1,7 @@
 -- ~/.config/nvim/lua/plugins/formatting.lua  (generated from formatting.lua.m4)
 -- Plugin: conform.nvim
 -- External whole-buffer formatting. Native typing/gq policy is configured
--- separately in config/formatting.lua.
+-- separately in config/writing.lua.
 --
 -- Formatter binaries are discovered at build time (see environment.mk).
 -- Only binaries found on PATH during "make install" are stamped here, so this

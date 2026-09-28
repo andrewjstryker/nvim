@@ -1,12 +1,12 @@
--- Native formatting policy for code comments and prose: typing and gq.
+-- Shared writing policy: comments, prose, display wrapping, spelling and gq.
 -- External formatters belong to plugins/formatting.lua; writing UI plugins
--- belong to plugins/writing.lua. Display and spelling use after/ftplugin/.
+-- belong to plugins/writing.lua. Filetype-specific exceptions use after/ftplugin/.
 local M = {}
 local markdown = { markdown = true, pandoc = true }
-local tex = { tex = true, plaintex = true, latex = true }
+local tex = { tex = true, plaintex = true }
 local prose = { text = true, markdown = true, pandoc = true,
-  tex = true, plaintex = true, latex = true }
-local expression = "v:lua.require'config.formatting'.format()"
+  tex = true, plaintex = true }
+local expression = "v:lua.require'config.writing'.format()"
 
 function M.configure_buffer()
   if vim.bo.buftype ~= "" then return end
@@ -20,6 +20,11 @@ function M.configure_buffer()
   vim.opt_local.formatoptions:append("cqrj1")
   if prose[ft] then
     vim.opt_local.formatoptions:append("t")
+    vim.opt_local.wrap = true
+    vim.opt_local.spell = true
+    vim.opt_local.spelllang = "en_us"
+    vim.b.undo_ftplugin = (vim.b.undo_ftplugin or "")
+      .. " | setlocal wrap< spell< spelllang<"
   end
   -- Own gq even when an LSP offers range formatting. Whole-file formatting
   -- remains available separately through <leader>cf.
