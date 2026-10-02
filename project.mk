@@ -37,6 +37,9 @@ nvim_treesitter_dir := ${nvim_cache_root}/treesitter
 
 NVIM_ROCKS_DIR      := ${nvim_rocks_dir}
 NVIM_TREESITTER_DIR := ${nvim_treesitter_dir}
+# Server release used by copilot.lua v3.0.0; independent of the plugin tag.
+COPILOT_SERVER_VERSION := 1.503.0
+NVIM_COPILOT_SERVER := ${nvim_rocks_dir}/copilot/${COPILOT_SERVER_VERSION}/copilot-language-server
 LUAROCKS_CONFIG_DIR := ${luarocks_config_dir}
 LUAROCKS_CONFIG     := ${luarocks_config}
 
@@ -64,12 +67,13 @@ stage_tools += $(if $(strip ${fnl_src}),LUA FENNEL)
 # actually present are exposed for optional formatter configuration.
 M4FLAGS += -I ${m4_dir}
 m4_vars += NVIM_ROCKS_DIR NVIM_CONFIG_DIR NVIM_TREESITTER_DIR
+m4_vars += NVIM_COPILOT_SERVER
 m4_vars += $(foreach v,PRETTIER STYLUA RUFF BLACK STYLER SQL_FORMATTER,\
   $(if $(strip ${$v}),$v))
 
 # Synchronization provisions installed rocks and parser state. The protocol
 # supplies M4 for ordinary templates and RSYNC for installation.
-sync_tools += LUA NVIM LUAROCKS GIT TREE_SITTER C_COMPILER
+sync_tools += LUA NVIM LUAROCKS GIT TREE_SITTER C_COMPILER CURL UNZIP
 
 show_vars := \
   NVIM_CONFIG_DIR NVIM_CACHE_DIR NVIM_ROCKS_DIR NVIM_TREESITTER_DIR \

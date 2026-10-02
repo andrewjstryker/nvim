@@ -64,6 +64,8 @@ RSYNC     ?= $(shell command -v rsync)
 GIT       ?= $(shell command -v git)
 AWK       ?= $(shell command -v awk)
 M4        ?= $(shell command -v m4)
+CURL      ?= $(shell command -v curl)
+UNZIP     ?= $(shell command -v unzip)
 
 # Used only by the test drivers, to bound a headless Neovim run.  A hung
 # session -- an autocommand that re-enters itself, a language server that never

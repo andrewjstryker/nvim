@@ -1,19 +1,33 @@
 -- ~/.config/nvim/lua/plugins/completion.lua
--- Plugins: nvim-cmp, cmp-nvim-lsp, cmp-buffer, cmp-path, copilot.lua
+-- Plugins: nvim-cmp, cmp-nvim-lsp, cmp-buffer, cmp-path, copilot.lua, copilot-cmp
 
 -- Copilot (setup first so cmp can reference it)
 local ok_copilot, copilot = pcall(require, "copilot")
+local copilot_ready = false
 if ok_copilot then
-  copilot.setup({
-    server     = { type = "binary" }, -- use standalone copilot-language-server; no host Node.js
-    suggestion = { enabled = false },  -- disable inline ghost text; use cmp instead
-    panel      = { enabled = false },
-  })
+  local server = require("config.env").copilot_server
+  if vim.fn.executable(server) == 0 then
+    vim.notify("Copilot server is missing; run make sync to provision it", vim.log.levels.WARN)
+  else
+    copilot.setup({
+      -- Provisioned by make sync; never download a server during editor startup.
+      server = {
+        type = "binary",
+        custom_server_filepath = server,
+      },
+      suggestion = { enabled = false },  -- disable inline ghost text; use cmp instead
+      panel      = { enabled = false },
+    })
+    copilot_ready = true
+  end
 end
 
 -- nvim-cmp
 local ok_cmp, cmp = pcall(require, "cmp")
 if not ok_cmp then return end
+
+local ok_copilot_cmp, copilot_cmp = pcall(require, "copilot_cmp")
+if copilot_ready and ok_copilot_cmp then copilot_cmp.setup() end
 
 cmp.setup({
   -- No snippet engine configured — expand LSP snippets with basic insert.
@@ -35,6 +49,7 @@ cmp.setup({
   }),
 
   sources = cmp.config.sources({
+    { name = "copilot" },
     { name = "nvim_lsp" },
     { name = "path" },
   }, {

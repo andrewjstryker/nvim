@@ -66,6 +66,9 @@ git = "hrsh7th/cmp-buffer"
 [plugins.cmp-path]
 git = "hrsh7th/cmp-path"
 
+[plugins.copilot-cmp]
+git = "zbirenbaum/copilot-cmp"
+
 # --- formatting (black/ruff, styler, sql-formatter, prettier) ---
 [plugins.conform.nvim]
 git = "stevearc/conform.nvim"

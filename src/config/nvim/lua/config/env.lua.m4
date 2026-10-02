@@ -29,6 +29,7 @@ local M = {}
 M.nvim_rocks_dir = "M4_NVIM_ROCKS_DIR"
 M.config_dir     = "M4_NVIM_CONFIG_DIR"
 M.treesitter_dir = "M4_NVIM_TREESITTER_DIR"
+M.copilot_server = "M4_NVIM_COPILOT_SERVER"
 
 -- Derived constants supplied by paths.m4.
 M.rocks_site    = "M4_SITE_DIR"

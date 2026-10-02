@@ -118,6 +118,11 @@ rocks-sync: rocks-bootstrap
 #   - rocks-sync:       installs all plugins from rocks.toml
 #------------------------------------------------------------------------------#
 
+.PHONY: provision-copilot
+provision-copilot: check-sync-tools
+	@COPILOT_CURL='${CURL}' COPILOT_UNZIP='${UNZIP}' bash '${scripts_dir}/install_copilot.sh' \
+	  '${COPILOT_SERVER_VERSION}' '${NVIM_COPILOT_SERVER}'
+
 # Cache is runtime state and intentionally outside the protocol manifest.
 .PHONY: clean-cache #> Remove the hermetic rocks cache
 clean-cache:

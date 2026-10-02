@@ -49,7 +49,7 @@
 #------------------------------------------------------------------------------#
 
 .PHONY: provision-parsers
-provision-parsers: rocks-sync
+provision-parsers: rocks-sync provision-copilot
 	@echo "Provisioning treesitter parsers into ${nvim_treesitter_dir}..."
 	@XDG_CONFIG_HOME="${nvim_xdg_config}" \
 	  XDG_CACHE_HOME="${nvim_xdg_cache}" \
@@ -66,6 +66,7 @@ provision-parsers: rocks-sync
 sync-nvim-state: check-sync-tools
 	$(if ${DRY_RUN}, \
 	  printf 'would sync rocks into %s/\n' '${NVIM_ROCKS_DIR}'; \
+	  printf 'would provision Copilot server at %s\n' '${NVIM_COPILOT_SERVER}'; \
 	  printf 'would build parsers into %s/\n' '${nvim_treesitter_dir}', \
 	  ${MAKE} --no-print-directory provision-parsers)
 

@@ -30,6 +30,7 @@ operation as `home apply nvim`.
 | `awk`        | minor tooling                           |
 | `tree-sitter` >= 0.26.1 | compiling configured parsers      |
 | C compiler   | compiling configured parsers             |
+| `curl`, `unzip` | provisioning the standalone Copilot server |
 
 ### Optional: formatters
 
@@ -56,6 +57,14 @@ This:
 3. bootstraps `toml-edit` into the hermetic rocks tree
 4. parses `rocks.toml` and installs all plugins (native rocks via `luarocks`,
    git plugins via `git clone`)
+5. provisions the pinned standalone Copilot server and treesitter parsers
+
+Copilot uses the server installed by `make sync` under
+`NVIM_CACHE_DIR/rocks/copilot/`, with no server downloads during editor startup
+and no host Node.js requirement. The binary supports glibc Linux and macOS on
+x64/arm64. Its release is pinned in `project.mk` to match the server expected by
+the pinned `copilot.lua` plugin. Suggestions appear in the cmp completion menu
+through `copilot-cmp`; authenticate with `:Copilot auth` on first use.
 
 ---
 

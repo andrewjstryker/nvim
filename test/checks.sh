@@ -45,6 +45,7 @@ repo_root=$(CDPATH='' cd -- "${here}/.." && pwd)
 . "${here}/vscode.sh"
 
 lib_check_tools
+bash "${here}/provision_copilot.sh"
 
 usage="usage: checks.sh [-c CACHE_DIR] [-t 'TARGETS'] [CHECK...]"
 cache=
