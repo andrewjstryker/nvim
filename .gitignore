@@ -1,3 +1,6 @@
 stage/*
 .nvimlog
 nvim.log
+
+# Local Homestead installation receipts survive clean.
+.homestead/

@@ -1,2 +1,0 @@
-FIXTURE=rendered
-export FIXTURE

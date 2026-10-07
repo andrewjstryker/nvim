@@ -1,4 +1,4 @@
-# Shared Neovim project declarations. This file is loaded before protocol.mk;
+# Shared Neovim project declarations. This file is loaded before homestead.mk;
 # it contains no recipes or lifecycle targets.
 
 # Repository and protocol roots.
@@ -26,7 +26,7 @@ endif
 
 nvim_xdg_config := $(patsubst %/,%,$(dir ${NVIM_CONFIG_DIR}))
 nvim_xdg_cache  := $(patsubst %/,%,$(dir ${NVIM_CACHE_DIR}))
-config_root     := ${nvim_xdg_config}
+override XDG_CONFIG_HOME := ${nvim_xdg_config}
 
 # Hermetic runtime state.
 nvim_cache_root     := ${NVIM_CACHE_DIR}
@@ -65,7 +65,7 @@ stage_tools += $(if $(strip ${fnl_src}),LUA FENNEL)
 
 # Ordinary m4 templates use the protocol renderer and context. Only values
 # actually present are exposed for optional formatter configuration.
-M4FLAGS += -I ${m4_dir}
+m4_flags += -I ${m4_dir}
 m4_vars += NVIM_ROCKS_DIR NVIM_CONFIG_DIR NVIM_TREESITTER_DIR
 m4_vars += NVIM_COPILOT_SERVER
 m4_vars += $(foreach v,PRETTIER STYLUA RUFF BLACK STYLER SQL_FORMATTER,\

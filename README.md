@@ -6,8 +6,9 @@ The system builds the runtime *before* install so Neovim loads **pure Lua**
 with no dynamic discovery or probing.
 
 The common stage/install/uninstall lifecycle is supplied by the repository-local
-`protocol/` unit. It is copied into the tree today at the path intended for a
-future submodule.
+`_homestead/` submodule. Initialize it with
+`git submodule update --init --recursive`. Local `.homestead/` installation
+receipts survive clean and allow uninstall without rebuilding.
 
 If all required tools are present, `make install` followed by `make sync`
 yields a working configuration. The collection driver exposes that ordered
@@ -193,13 +194,14 @@ make test
 ```
 
 `make test` needs the network: it syncs plugins and parsers into temp
-directories, then runs every check against that install. `make check` runs
+directories, then runs every check against that install. `make test-installed` runs
 the same checks that work offline, against the already-synced cache, in
 seconds — it is the one to run before installing:
 
 ```bash
-make check                     # staged artifacts + every offline check
-make check CHECKS=lua_runtime  # narrow it while iterating
+make check                     # read-only inputs, declarations and tools
+make test-installed            # rendered artifacts + every offline check
+make test-installed CHECKS=lua_runtime  # narrow it while iterating
 ```
 
 The check names are `keymaps`, `ts_works`, `lua_runtime`, `vscode`, `wrapping`,

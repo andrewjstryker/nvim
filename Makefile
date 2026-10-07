@@ -3,7 +3,7 @@
 # Makefile
 #
 # Build, install, and synchronize the Neovim configuration.  The reusable
-# lifecycle lives in protocol/; this file contains only Neovim-specific work.
+# lifecycle lives in _homestead/; this file contains only Neovim-specific work.
 #
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 
@@ -12,15 +12,14 @@
 include environment.mk
 include project.mk
 
-PROTOCOL_MK ?= protocol/protocol.mk
-include ${PROTOCOL_MK}
+include _homestead/homestead.mk
 
 include build.mk
 include seed.mk
 include treesitter.mk
 include test.mk
 
-check: verify
+stage: verify
 
 # Compatibility name for Neovim's historical build surface. The protocol's
 # incremental stage target now owns the complete staged image.

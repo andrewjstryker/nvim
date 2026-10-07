@@ -13,7 +13,7 @@
 # Targets:
 #   test-fast        -- build + install into temp, clean startup (no network,
 #                       seconds).
-#   check            -- verify, plus every check that runs offline against the
+#   test-installed   -- verify, plus every check that runs offline against the
 #                       already-synced cache.  Narrow with CHECKS=.
 #   test             -- full sync into temp; every check (network).
 #   verify           -- fail if staged Lua still contains unresolved M4_ tokens.
@@ -21,7 +21,7 @@
 # Design:
 #   This file holds no test logic, and no per-check targets.  It selects a
 #   tier and hands the work to one driver under test/, the way
-#   protocol/tests/staging.sh is driven -- a single implementation of
+#   _homestead/tests is driven -- a single implementation of
 #   "throwaway XDG root, real build into it, headless Neovim against it".
 #
 #   The checks reuse the SAME code the runtime uses (e.g. config.keymap's
@@ -47,17 +47,16 @@
 # check must not add an entry point.
 #
 #   test-fast  needs nothing        build + install, does Neovim start?
-#   check      needs `make sync`    + every check that works offline
+#   test-installed needs `make sync`    + every check that works offline
 #   test       needs the network    + a full sync and the install check
 #
-# `check` is the protocol's own extension point ("stage and run
-# concern-defined checks"); this concern hooks verify and the offline
-# behavioral checks into it rather than growing siblings beside it.
+# Homestead check is read-only preflight. Rendered validation participates in
+# stage; test-installed runs the offline behavioral checks.
 #
 # All of it runs through one driver, test/checks.sh, which installs into a
 # throwaway root and runs the named checks against that single install:
 #
-#   test/checks.sh         the driver (POSIX sh, like protocol/tests/staging.sh)
+#   test/checks.sh         the driver (POSIX sh, like _homestead/tests)
 #   test/lua_runtime.sh    the lua_runtime check, which needs whole sessions
 #   test/session/*.lua     assertions inside one running Neovim
 #
@@ -87,21 +86,19 @@ test_env = NVIM='${NVIM}' TIMEOUT='${TIMEOUT}' MAKE='$(MAKE)'
 offline_checks = keymaps ts_works lua_runtime vscode wrapping language_defaults copilot
 online_checks  = ${offline_checks} ts_install
 
-# Narrow either tier while iterating:  make check CHECKS=lua_runtime
+# Narrow either tier while iterating:  make test-installed CHECKS=lua_runtime
 CHECKS ?=
 
 .PHONY: test-fast #> Quick smoke test: build + install + clean startup (no network)
 test-fast:
 	@${test_env} sh test/checks.sh
 
-# Hooked into the protocol's `check`, below.  Ordered after verify so a
-# parallel make cannot re-stage with temp paths while verify greps the stage.
+# Ordered after verify so parallel make cannot re-stage with temp paths while verify greps the stage.
 .PHONY: test-installed
 test-installed: verify
 	@${test_env} sh test/checks.sh -c '${NVIM_CACHE_DIR}' \
 	  $(if ${CHECKS},${CHECKS},${offline_checks})
 
-check: test-installed
 
 # One sync, one install, every check.
 .PHONY: test #> Full check: install and sync into temp, then every check (network)
@@ -118,7 +115,7 @@ test:
 #------------------------------------------------------------------------------#
 
 .PHONY: verify #> Verify no unexpanded M4_ tokens remain in staged Lua
-verify: stage
+verify: ${staged_files}
 	@if grep -rn 'M4_[A-Z_]*' ${stage_nvim_dir}/lua/ 2>/dev/null \
 	    | grep -v '^\s*--'; then \
 	  echo "ERROR: Unexpanded m4 tokens found in staged output"; \
