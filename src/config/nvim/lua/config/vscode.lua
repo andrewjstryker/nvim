@@ -68,6 +68,7 @@ local ok_leap, leap = pcall(require, "leap")
 if ok_leap then
   map({"n", "x", "o"}, "s",  function() leap.leap({}) end,
     { desc = "Leap forward" })
-  map({"n", "x", "o"}, "S",  function() leap.leap({ backward = true }) end,
+  -- Not visual (x) mode: nvim-surround owns visual S (see plugins/editing.lua).
+  map({"n", "o"}, "S",  function() leap.leap({ backward = true }) end,
     { desc = "Leap backward" })
 end

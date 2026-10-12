@@ -8,6 +8,12 @@ local prose = { text = true, markdown = true, pandoc = true,
   tex = true, plaintex = true }
 local expression = "v:lua.require'config.writing'.format()"
 
+-- A leading "|" would run :print (E749 in an empty buffer such as oil's).
+local function add_undo(command)
+  local undo = vim.b.undo_ftplugin
+  vim.b.undo_ftplugin = (undo and undo ~= "") and (undo .. " | " .. command) or command
+end
+
 function M.configure_buffer()
   if vim.bo.buftype ~= "" then return end
   local ft = vim.bo.filetype
@@ -22,14 +28,12 @@ function M.configure_buffer()
     vim.opt_local.wrap = true
     vim.opt_local.spell = true
     vim.opt_local.spelllang = "en_us"
-    vim.b.undo_ftplugin = (vim.b.undo_ftplugin or "")
-      .. " | setlocal wrap< spell< spelllang<"
+    add_undo("setlocal wrap< spell< spelllang<")
   end
   -- Own gq even when an LSP offers range formatting. Whole-file formatting
   -- remains available separately through <leader>cf.
   vim.bo.formatexpr = expression
-  vim.b.undo_ftplugin = (vim.b.undo_ftplugin or "")
-    .. " | setlocal formatoptions< formatexpr<"
+  add_undo("setlocal formatoptions< formatexpr<")
 end
 
 local environments = {

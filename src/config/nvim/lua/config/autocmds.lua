@@ -23,6 +23,32 @@ vim.api.nvim_create_autocmd("FileType", {
   end,
 })
 
+---------------------------------------------------------------------------
+-- Lazy-load opt=true plugins on matching filetypes
+--
+-- Registered before the writing policy below: replaying the filetype runs
+-- b:undo_ftplugin, which would otherwise reset that policy for the buffer.
+---------------------------------------------------------------------------
+local ft_plugins = {
+  { pattern = { "r", "rmd", "rnoweb", "rhelp" }, plugin = "Nvim-R" },
+  { pattern = { "csv", "tsv" },                   plugin = "csv.vim" },
+  { pattern = { "ledger", "journal" },             plugin = "vim-ledger" },
+  { pattern = { "dockerfile" },                    plugin = "dockerfile.vim" },
+  { pattern = { "pandoc" },                        plugin = "vim-pandoc-syntax" },
+}
+
+for _, ft in ipairs(ft_plugins) do
+  vim.api.nvim_create_autocmd("FileType", {
+    group = aug,
+    pattern = ft.pattern,
+    once = true,
+    callback = function(args)
+      vim.cmd("packadd " .. ft.plugin)
+      require("config.util").replay_filetype(args.match)
+    end,
+  })
+end
+
 -- Highlight on yank
 vim.api.nvim_create_autocmd("TextYankPost", {
   group = aug,
@@ -41,25 +67,3 @@ vim.api.nvim_create_autocmd("FileType", {
 
 -- Whitespace trimming belongs to built-in EditorConfig. Without an explicit
 -- project rule, saving preserves whitespace (including Markdown hard breaks).
-
----------------------------------------------------------------------------
--- Lazy-load opt=true plugins on matching filetypes
----------------------------------------------------------------------------
-local ft_plugins = {
-  { pattern = { "r", "rmd", "rnoweb", "rhelp" }, plugin = "Nvim-R" },
-  { pattern = { "csv", "tsv" },                   plugin = "csv.vim" },
-  { pattern = { "ledger", "journal" },             plugin = "vim-ledger" },
-  { pattern = { "dockerfile" },                    plugin = "dockerfile.vim" },
-  { pattern = { "pandoc" },                        plugin = "vim-pandoc-syntax" },
-}
-
-for _, ft in ipairs(ft_plugins) do
-  vim.api.nvim_create_autocmd("FileType", {
-    group = aug,
-    pattern = ft.pattern,
-    once = true,
-    callback = function()
-      vim.cmd("packadd " .. ft.plugin)
-    end,
-  })
-end

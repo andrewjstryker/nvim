@@ -47,19 +47,8 @@ vim.lsp.config("lua_ls", {
 })
 vim.lsp.enable("lua_ls")
 
--- Neovim's own FileType handlers (filetypeplugin, filetypeindent, syntaxset)
--- are registered before this configuration's, so for the buffer that got us
--- here they already ran: its ftplugin, indent and syntax scripts were looked
--- up while the Fennel package was still off the runtimepath, which left the
--- session's first Fennel buffer unhighlighted. Replay those three groups for
--- this buffer. Re-firing FileType itself would re-enter the `once` autocmd
--- that called us, so target the groups directly, and clear 'syntax' first
--- because SynSet is a no-op when the option is assigned its current value.
+-- The session's first Fennel buffer looked up its ftplugin, indent and syntax
+-- scripts before the package above was on the runtimepath.
 if vim.bo.filetype == "fennel" then
-  vim.bo.syntax = ""
-  for _, group in ipairs({ "filetypeplugin", "filetypeindent", "syntaxset" }) do
-    if vim.fn.exists("#" .. group .. "#FileType") == 1 then
-      vim.cmd("doautocmd <nomodeline> " .. group .. " FileType fennel")
-    end
-  end
+  require("config.util").replay_filetype("fennel")
 end
