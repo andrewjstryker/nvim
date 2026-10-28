@@ -4,7 +4,7 @@ local function check()
     vim.cmd.enew({ bang = true })
     vim.bo.filetype = ft
     vim.api.nvim_buf_set_lines(0, 0, -1, false, lines or { "" })
-    assert(vim.bo.textwidth == 80, ft .. " width")
+    assert(vim.bo.textwidth == (ft == "mail" and 72 or 80), ft .. " width")
     assert(not vim.bo.formatoptions:find("a", 1, true), ft .. " continuous formatting")
   end
   local function type_text(text)
@@ -13,9 +13,9 @@ local function check()
   local function lines() return vim.api.nvim_buf_get_lines(0, 0, -1, false) end
   local function wrapped()
     assert(#lines() > 1, "expected wrapping: " .. vim.bo.filetype)
-    for _, line in ipairs(lines()) do assert(#line <= 80, "line exceeds width: " .. line) end
+    for _, line in ipairs(lines()) do assert(#line <= vim.bo.textwidth, "line exceeds width: " .. line) end
   end
-  for _, ft in ipairs({ "text", "markdown", "pandoc", "tex", "plaintex" }) do
+  for _, ft in ipairs({ "text", "mail", "markdown", "pandoc", "tex", "plaintex" }) do
     buffer(ft)
     assert(vim.wo.wrap and vim.wo.spell, ft .. " prose display defaults")
     type_text(sentence)

@@ -4,7 +4,7 @@
 local M = {}
 local markdown = { markdown = true, pandoc = true }
 local tex = { tex = true, plaintex = true }
-local prose = { text = true, markdown = true, pandoc = true,
+local prose = { text = true, mail = true, markdown = true, pandoc = true,
   tex = true, plaintex = true }
 local expression = "v:lua.require'config.writing'.format()"
 
